@@ -12,6 +12,7 @@ from slicer.util import *
 # AliMuwahed
 #
 
+#AliMuwahedModule: Metadata for the module.
 class AliMuwahedModule(ScriptedLoadableModule):
     """Uses ScriptedLoadableModule base class, available at:
     https://github.com/Slicer/Slicer/blob/master/Base/Python/slicer/ScriptedLoadableModule.py
@@ -39,6 +40,7 @@ class AliMuwahedModule(ScriptedLoadableModule):
 # AliMuwahedWidget
 #
 
+#AliMuwahedWidget: Sets up the UI.
 class AliMuwahedWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
     """Uses ScriptedLoadableModuleWidget base class, available at:
     https://github.com/Slicer/Slicer/blob/master/Base/Python/slicer/ScriptedLoadableModule.py
@@ -72,6 +74,15 @@ class AliMuwahedWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         self.layout.addWidget(PrintPosButton)
         PrintPosButton.connect('clicked(bool)', self.onPrintPosButtonButtonClicked)
 
+        # Create Needles button
+        createNeedlesButton = qt.QPushButton("Create Needles")
+        createNeedlesButton.toolTip = "Automatically create fiducials and cylinders (needles)"
+        self.layout.addWidget(createNeedlesButton)
+        createNeedlesButton.connect('clicked(bool)', self.onCreateNeedlesButtonClicked)
+
+    def onCreateNeedlesButtonClicked(self):
+        self.logic.createNeedles()
+
 
     # HelloWorld button callback function
     def onHelloWorldButtonClicked(self):
@@ -90,6 +101,7 @@ class AliMuwahedWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
 # AliMuwahedLogic
 #
 
+#AliMuwahedLogic: Contains basic logic, including a method to print the position of the first fiducial.
 class AliMuwahedLogic(ScriptedLoadableModuleLogic):
     """This class should implement all the actual
     computation done by your module.  The interface
@@ -105,6 +117,94 @@ class AliMuwahedLogic(ScriptedLoadableModuleLogic):
         Called when the logic class is instantiated. Can be used for initializing member variables.
         """
         ScriptedLoadableModuleLogic.__init__(self)
+        self.needleLineSources = []  # Store line sources for each needle
+        self.needleModels = []       # Store model nodes for each needle
+        self.fiducialNode = None
+    def createNeedles(self, numNeedles=1):
+        # Remove previous needles and fiducials if any
+        for modelNode in self.needleModels:
+            slicer.mrmlScene.RemoveNode(modelNode)
+        self.needleLineSources = []
+        self.needleModels = []
+
+        # Create or get fiducial node
+        fiducialNode = None
+        try:
+            fiducialNode = getNode('F')
+        except slicer.util.MRMLNodeNotFoundException:
+            fiducialNode = slicer.modules.markups.logic().AddNewFiducialNode()
+            fiducialNode = getNode(fiducialNode)
+            fiducialNode.SetName('F')
+        self.fiducialNode = fiducialNode
+
+        # Increase glyph size for visibility
+        fiducialNode.GetDisplayNode().SetGlyphScale(3.0)
+
+        # Example: create 1 needle (2 points, can be extended)
+        points = [
+            [0, 0, 0],
+            [0, 0, 150]  # 15cm along Z
+        ]
+        fiducialNode.RemoveAllControlPoints()
+        for i, pt in enumerate(points):
+            fiducialNode.AddFiducial(*pt)
+            fiducialNode.SetNthFiducialLabel(i, f"F-{i+1}")
+
+        # Create cylinder (needle) between F-1 and F-2
+        lineSource = vtk.vtkLineSource()
+        lineSource.SetPoint1(points[0])
+        lineSource.SetPoint2(points[1])
+        lineSource.Update()
+
+        tubeFilter = vtk.vtkTubeFilter()
+        tubeFilter.SetInputConnection(lineSource.GetOutputPort())
+        tubeFilter.SetRadius(1.0)  # 1mm radius
+        tubeFilter.SetNumberOfSides(20)
+        tubeFilter.Update()
+
+        triangleFilter = vtk.vtkTriangleFilter()
+        triangleFilter.SetInputConnection(tubeFilter.GetOutputPort())
+        triangleFilter.Update()
+
+        # Add to scene
+        modelNode = slicer.modules.models.logic().AddModel(triangleFilter.GetOutput())
+        modelNode.SetName("Needle-1")
+        modelNode.GetDisplayNode().SetColor(1,1,0)  # Yellow
+        modelNode.GetDisplayNode().SetEdgeVisibility(True)
+        modelNode.GetDisplayNode().SetRepresentation(1)  # Wireframe
+
+        self.needleLineSources.append(lineSource)
+        self.needleModels.append(modelNode)
+
+        # Observe fiducial movement to update needle
+        fiducialNode.AddObserver(vtk.vtkCommand.ModifiedEvent, self.updateNeedleFromFiducials)
+
+    def updateNeedleFromFiducials(self, caller, event):
+        # Update needle geometry when fiducials move
+        if not self.fiducialNode or not self.needleLineSources:
+            return
+        if self.fiducialNode.GetNumberOfControlPoints() < 2:
+            return
+        pt1 = [0,0,0]
+        pt2 = [0,0,0]
+        self.fiducialNode.GetNthControlPointPosition(0, pt1)
+        self.fiducialNode.GetNthControlPointPosition(1, pt2)
+        lineSource = self.needleLineSources[0]
+        lineSource.SetPoint1(pt1)
+        lineSource.SetPoint2(pt2)
+        lineSource.Update()
+
+        tubeFilter = vtk.vtkTubeFilter()
+        tubeFilter.SetInputConnection(lineSource.GetOutputPort())
+        tubeFilter.SetRadius(1.0)
+        tubeFilter.SetNumberOfSides(20)
+        tubeFilter.Update()
+
+        triangleFilter = vtk.vtkTriangleFilter()
+        triangleFilter.SetInputConnection(tubeFilter.GetOutputPort())
+        triangleFilter.Update()
+
+        self.needleModels[0].SetAndObservePolyData(triangleFilter.GetOutput())
 
     def process(self):
         return "Hello world!"
@@ -128,6 +228,7 @@ class AliMuwahedLogic(ScriptedLoadableModuleLogic):
 # AliMuwahedTest
 #
 
+#AliMuwahedTest: Basic test setup, adds a fiducial and tests the print position function.
 class AliMuwahedTest(ScriptedLoadableModuleTest):
     """
     This is the test case for your scripted module.
