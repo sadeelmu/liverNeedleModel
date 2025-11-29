@@ -91,10 +91,10 @@ class AliMuwahedModuleWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         self.distanceCollapsible.setLayout(self.distanceGrid)
         self.distanceLabels = []  # Store references to labels for updating
 
-        # Observe selection changes on fiducials
+        # Observe selection changes on fiducials (use only ModifiedEvent)
         try:
             fiducialNode = getNode('F')
-            fiducialNode.AddObserver(vtk.vtkCommand.ControlPointModifiedEvent, self.onFiducialSelected)
+            fiducialNode.AddObserver(vtk.vtkCommand.ModifiedEvent, self.onFiducialSelected)
         except slicer.util.MRMLNodeNotFoundException:
             pass
 
