@@ -118,12 +118,7 @@ class AliMuwahedModuleWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         self.logic.computeNeedleVesselDistances(self)
 
     def onFiducialSelected(self, caller, event):
-        # Find selected fiducial index
-        selectedIndex = caller.GetSelectionNode().GetActiveMarkupsFiducialID()
-        if selectedIndex is None:
-            return
-        # Find which needle this fiducial belongs to
-        idx = caller.GetSelectedControlPoint()  # This should give the index
+        idx = caller.GetSelectedControlPoint()
         if idx is None:
             return
         needleIdx = idx // 2  # Each needle has 2 fiducials
