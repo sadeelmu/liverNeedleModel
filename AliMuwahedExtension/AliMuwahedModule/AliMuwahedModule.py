@@ -83,6 +83,21 @@ class AliMuwahedModuleWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         self.layout.addWidget(computeDistancesButton)
         computeDistancesButton.connect('clicked(bool)', self.onComputeDistancesButtonClicked)
 
+        # Q3: Distance display section (collapsible)
+        self.distanceCollapsible = slicer.qMRMLCollapsibleButton()
+        self.distanceCollapsible.text = "Distance"
+        self.layout.addWidget(self.distanceCollapsible)
+        self.distanceGrid = qt.QGridLayout()
+        self.distanceCollapsible.setLayout(self.distanceGrid)
+        self.distanceLabels = []  # Store references to labels for updating
+
+        # Observe selection changes on fiducials
+        try:
+            fiducialNode = getNode('F')
+            fiducialNode.AddObserver(vtk.vtkCommand.ControlPointModifiedEvent, self.onFiducialSelected)
+        except slicer.util.MRMLNodeNotFoundException:
+            pass
+
     # Create Needles button callback function
     def onCreateNeedlesButtonClicked(self):
         # Q1: Add new needle (pair of fiducials and cylinder)
@@ -99,8 +114,20 @@ class AliMuwahedModuleWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         self.logic.printPosF1()
 
     def onComputeDistancesButtonClicked(self):
-        # Q3: Compute and display needle-vessel distances
+        # Q3: Compute and display needle-vessel distances in the interface
         self.logic.computeNeedleVesselDistances(self)
+
+    def onFiducialSelected(self, caller, event):
+        # Find selected fiducial index
+        selectedIndex = caller.GetSelectionNode().GetActiveMarkupsFiducialID()
+        if selectedIndex is None:
+            return
+        # Find which needle this fiducial belongs to
+        idx = caller.GetSelectedControlPoint()  # This should give the index
+        if idx is None:
+            return
+        needleIdx = idx // 2  # Each needle has 2 fiducials
+        self.logic.computeSingleNeedleVesselDistances(self, needleIdx)
 
 #%%
 #
@@ -243,9 +270,9 @@ class AliMuwahedModuleLogic(ScriptedLoadableModuleLogic):
 
     def computeNeedleVesselDistances(self, widget):
         """
-        Compute and display minimum distance from each needle to each vessel mesh.
+        Compute and display minimum distance from each needle to each vessel mesh in the module interface.
+        Display results in a grid layout under a collapsible section.
         """
-        # Vessel mesh names (update as needed)
         vessel_names = [
             'portalvein', 'venoussystem', 'artery'
         ]
@@ -260,7 +287,6 @@ class AliMuwahedModuleLogic(ScriptedLoadableModuleLogic):
                     needle_results.append(f"{vessel_name}: not found")
                     continue
                 vesselPolyData = vesselNode.GetPolyData()
-                # Compute distance from each point on needle to vessel
                 distanceFilter = vtk.vtkDistancePolyDataFilter()
                 distanceFilter.SetInputData(0, needlePolyData)
                 distanceFilter.SetInputData(1, vesselPolyData)
@@ -270,66 +296,75 @@ class AliMuwahedModuleLogic(ScriptedLoadableModuleLogic):
                     needle_results.append(f"{vessel_name}: error")
                     continue
                 minDist = min([distances.GetValue(i) for i in range(distances.GetNumberOfTuples())])
-                needle_results.append(f"{vessel_name}: {minDist/10:.2f} cm")
-            results.append((needleIdx+1, needle_results))
-        # Display results in a message box
-        msg = ""
-        for idx, vessel_results in results:
-            msg += f"Needle {idx}:\n" + "\n".join(vessel_results) + "\n\n"
-        qt.QMessageBox.information(slicer.util.mainWindow(), 'Needle-Vessel Distances', msg)
+                needle_results.append(f"{minDist/10:.2f} cm")
+            results.append(needle_results)
+        # Clear previous labels
+        for label in getattr(widget, 'distanceLabels', []):
+            widget.distanceGrid.removeWidget(label)
+            label.deleteLater()
+        widget.distanceLabels = []
+        # Add header
+        header = qt.QLabel("Needle/Vessel")
+        widget.distanceGrid.addWidget(header, 0, 0)
+        widget.distanceLabels.append(header)
+        for v, vessel_name in enumerate(vessel_names):
+            vesselLabel = qt.QLabel(vessel_name)
+            widget.distanceGrid.addWidget(vesselLabel, 0, v+1)
+            widget.distanceLabels.append(vesselLabel)
+        # Add data rows
+        for n, needle_results in enumerate(results):
+            needleLabel = qt.QLabel(f"Needle {n+1}")
+            widget.distanceGrid.addWidget(needleLabel, n+1, 0)
+            widget.distanceLabels.append(needleLabel)
+            for v, value in enumerate(needle_results):
+                distLabel = qt.QLabel(value)
+                widget.distanceGrid.addWidget(distLabel, n+1, v+1)
+                widget.distanceLabels.append(distLabel)
 
-#%%
-#
-# AliMuwahedModuleTest
-#
-
-#AliMuwahedTest: Basic test setup, adds a fiducial and tests the print position function.
-class AliMuwahedModuleTest(ScriptedLoadableModuleTest):
-    """
-    This is the test case for your scripted module.
-    Uses ScriptedLoadableModuleTest base class, available at:
-    https://github.com/Slicer/Slicer/blob/master/Base/Python/slicer/ScriptedLoadableModule.py
-    """
-
-    def setUp(self):
-        """ Do whatever is needed to reset the state - typically a scene clear will be enough.
+    def computeSingleNeedleVesselDistances(self, widget, needleIdx):
         """
-        # open the MRBrainTumor1 sample dataset
-        sampleDataLogic = SampleData.SampleDataLogic()
-        masterVolumeNode = sampleDataLogic.downloadMRBrainTumor1()
-
-    def runTest(self):
-        """Run as few or as many tests as needed here.
+        Compute and display minimum distance from the selected needle to each vessel mesh in the module interface.
         """
-        self.setUp()
-        self.test_AliMuwahedModule1()
-
-    def test_AliMuwahedModule1(self):
-        """ Ideally you should have several levels of tests.  At the lowest level
-        tests should exercise the functionality of the logic with different inputs
-        (both valid and invalid).  At higher levels your tests should emulate the
-        way the user would interact with your code and confirm that it still works
-        the way you intended.
-        One of the most important features of the tests is that it should alert other
-        developers when their changes will have an impact on the behavior of your
-        module.  For example, if a developer removes a feature that you depend on,
-        your test should break so they know that the feature is needed.
-        """
-
-        # quick message box to inform that the test is starting
-        self.delayDisplay("Starting the test")
-
-        # create node to store fiducials
-        markupsNodeID = slicer.modules.markups.logic().AddNewFiducialNode()
-        markupsNode = getNode(markupsNodeID)
-        markupsNode.SetName("F")
-        # add one fiducial
-        markupsNode.AddFiducial(6.4, 35.1, 0.7)
-
-        # get the logic
-        logic = AliMuwahedModuleLogic()
-        # call function printPosF1 to test it on the previously added fiducial
-        logic.printPosF1()
-
-        # quick message box to inform that the test has successfully ended
-        self.delayDisplay('Test passed')
+        vessel_names = [
+            'portalvein', 'venoussystem', 'artery'
+        ]
+        if needleIdx >= len(self.needleModels):
+            return
+        modelNode = self.needleModels[needleIdx]
+        needlePolyData = modelNode.GetPolyData()
+        needle_results = []
+        for vessel_name in vessel_names:
+            try:
+                vesselNode = getNode(vessel_name)
+            except slicer.util.MRMLNodeNotFoundException:
+                needle_results.append(f"{vessel_name}: not found")
+                continue
+            vesselPolyData = vesselNode.GetPolyData()
+            distanceFilter = vtk.vtkDistancePolyDataFilter()
+            distanceFilter.SetInputData(0, needlePolyData)
+            distanceFilter.SetInputData(1, vesselPolyData)
+            distanceFilter.Update()
+            distances = distanceFilter.GetOutput().GetPointData().GetArray("Distance")
+            if not distances:
+                needle_results.append(f"{vessel_name}: error")
+                continue
+            minDist = min([distances.GetValue(i) for i in range(distances.GetNumberOfTuples())])
+            needle_results.append(f"{minDist/10:.2f} cm")
+        # Clear previous labels
+        for label in getattr(widget, 'distanceLabels', []):
+            widget.distanceGrid.removeWidget(label)
+            label.deleteLater()
+        widget.distanceLabels = []
+        # Add header
+        header = qt.QLabel(f"Needle {needleIdx+1}")
+        widget.distanceGrid.addWidget(header, 0, 0)
+        widget.distanceLabels.append(header)
+        for v, vessel_name in enumerate(vessel_names):
+            vesselLabel = qt.QLabel(vessel_name)
+            widget.distanceGrid.addWidget(vesselLabel, 0, v+1)
+            widget.distanceLabels.append(vesselLabel)
+        # Add data row
+        for v, value in enumerate(needle_results):
+            distLabel = qt.QLabel(value)
+            widget.distanceGrid.addWidget(distLabel, 1, v+1)
+            widget.distanceLabels.append(distLabel)
