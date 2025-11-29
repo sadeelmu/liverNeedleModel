@@ -144,18 +144,15 @@ class AliMuwahedModuleLogic(ScriptedLoadableModuleLogic):
 
     # Q1: Needle creation and interaction
     def createNeedles(self):
-        """
-        Add a new needle (cylinder) between a new pair of fiducial points each time the button is pressed.
-        Does not remove previous needles or fiducials.
-        """
         # Create or get fiducial node
         fiducialNode = None
         try:
             fiducialNode = getNode('F')
         except slicer.util.MRMLNodeNotFoundException:
-            fiducialNode = slicer.modules.markups.logic().AddNewFiducialNode()
-            fiducialNode = getNode(fiducialNode)
+            fiducialNodeID = slicer.modules.markups.logic().AddNewFiducialNode()
+            fiducialNode = getNode(fiducialNodeID)
             fiducialNode.SetName('F')
+        self.fiducialNode = fiducialNode  # Ensure this is set before use
         # Increase glyph size for visibility
         fiducialNode.GetDisplayNode().SetGlyphScale(3.0)
 
