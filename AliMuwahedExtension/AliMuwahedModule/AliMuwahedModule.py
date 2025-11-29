@@ -62,6 +62,7 @@ class AliMuwahedWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         """
         # initialisation that needs to be here - don't remove
         ScriptedLoadableModuleWidget.setup(self)
+        self.layout = self.layout()  # <-- This line ensures self.layout is set
 
         # HelloWorld button
         helloWorldButton = qt.QPushButton("Hello world")
