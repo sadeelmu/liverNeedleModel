@@ -9,24 +9,24 @@ from slicer.util import *
 
 #%%
 #
-# AnotherModule
+# AliMuwahed
 #
 
-class AnotherModule(ScriptedLoadableModule):
+class AliMuwahedModule(ScriptedLoadableModule):
     """Uses ScriptedLoadableModule base class, available at:
     https://github.com/Slicer/Slicer/blob/master/Base/Python/slicer/ScriptedLoadableModule.py
     """
 
     def __init__(self, parent):
         ScriptedLoadableModule.__init__(self, parent)
-        self.parent.title = "AnotherModule"  # TODO: make this more human readable by adding spaces
+        self.parent.title = "AliMuwahed"  # TODO: make this more human readable by adding spaces
         self.parent.categories = ["Examples"]  # TODO: set categories (folders where the module shows up in the module selector)
         self.parent.dependencies = []  # TODO: add here list of module names that this module requires
         self.parent.contributors = ["Caroline Essert (University of Strasbourg)"]  # TODO: replace with "Firstname Lastname (Organization)"
         # TODO: update with short description of the module and a link to online module documentation
         self.parent.helpText = """
             This is an example of scripted loadable module bundled in an extension.
-            See more information in <a href="https://github.com/organization/projectname#AnotherModule">module documentation</a>.
+            See more information in <a href="https://github.com/organization/projectname#AliMuwahed">module documentation</a>.
             """
         # TODO: replace with organization, grant and thanks
         self.parent.acknowledgementText = """
@@ -36,10 +36,10 @@ class AnotherModule(ScriptedLoadableModule):
 
 #%%
 #
-# AnotherModuleWidget
+# AliMuwahedWidget
 #
 
-class AnotherModuleWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
+class AliMuwahedWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
     """Uses ScriptedLoadableModuleWidget base class, available at:
     https://github.com/Slicer/Slicer/blob/master/Base/Python/slicer/ScriptedLoadableModule.py
     """
@@ -51,7 +51,7 @@ class AnotherModuleWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         ScriptedLoadableModuleWidget.__init__(self, parent)
         VTKObservationMixin.__init__(self)  # needed for parameter node observation
         # store logic in a member variable
-        self.logic = AnotherModuleLogic()
+        self.logic = AliMuwahedLogic()
 
 
     def setup(self):
@@ -87,10 +87,10 @@ class AnotherModuleWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
 
 #%%
 #
-# AnotherModuleLogic
+# AliMuwahedLogic
 #
 
-class AnotherModuleLogic(ScriptedLoadableModuleLogic):
+class AliMuwahedLogic(ScriptedLoadableModuleLogic):
     """This class should implement all the actual
     computation done by your module.  The interface
     should be such that other python code can import
@@ -125,10 +125,10 @@ class AnotherModuleLogic(ScriptedLoadableModuleLogic):
 
 #%%
 #
-# AnotherModuleTest
+# AliMuwahedTest
 #
 
-class AnotherModuleTest(ScriptedLoadableModuleTest):
+class AliMuwahedTest(ScriptedLoadableModuleTest):
     """
     This is the test case for your scripted module.
     Uses ScriptedLoadableModuleTest base class, available at:
@@ -146,9 +146,9 @@ class AnotherModuleTest(ScriptedLoadableModuleTest):
         """Run as few or as many tests as needed here.
         """
         self.setUp()
-        self.test_AnotherModule1()
+        self.test_AliMuwahed1()
 
-    def test_AnotherModule1(self):
+    def test_AliMuwahed1(self):
         """ Ideally you should have several levels of tests.  At the lowest level
         tests should exercise the functionality of the logic with different inputs
         (both valid and invalid).  At higher levels your tests should emulate the
@@ -171,7 +171,7 @@ class AnotherModuleTest(ScriptedLoadableModuleTest):
         markupsNode.AddFiducial(6.4, 35.1, 0.7)
 
         # get the logic
-        logic = AnotherModuleLogic()
+        logic = AliMuwahedLogic()
         # call function printPosF1 to test it on the previously added fiducial
         logic.printPosF1()
 
