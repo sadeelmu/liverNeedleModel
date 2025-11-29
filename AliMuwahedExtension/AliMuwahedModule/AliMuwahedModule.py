@@ -280,14 +280,18 @@ class AliMuwahedModuleLogic(ScriptedLoadableModuleLogic):
         """
         Compute and display minimum distance from each needle to each vessel mesh in the module interface.
         Display results in a grid layout under a collapsible section.
+        Also update needle colors: closest needle to any vessel is colored red, others yellow.
         """
         vessel_names = [
             'portalvein', 'venoussystem', 'artery'
         ]
         results = []
+        minRisk = float('inf')
+        minRiskNeedleIdx = None
         for needleIdx, modelNode in enumerate(self.needleModels):
             needlePolyData = modelNode.GetPolyData()
             needle_results = []
+            minDistForNeedle = float('inf')
             for vessel_name in vessel_names:
                 try:
                     vesselNode = getNode(vessel_name)
@@ -305,7 +309,19 @@ class AliMuwahedModuleLogic(ScriptedLoadableModuleLogic):
                     continue
                 minDist = min([distances.GetValue(i) for i in range(distances.GetNumberOfTuples())])
                 needle_results.append(f"{minDist/10:.2f} cm")
+                if minDist < minDistForNeedle:
+                    minDistForNeedle = minDist
             results.append(needle_results)
+            # Track needle with smallest risk (closest to any vessel)
+            if minDistForNeedle < minRisk:
+                minRisk = minDistForNeedle
+                minRiskNeedleIdx = needleIdx
+        # Update needle colors
+        for i, modelNode in enumerate(self.needleModels):
+            if i == minRiskNeedleIdx:
+                modelNode.GetDisplayNode().SetColor(1,0,0)  # Red
+            else:
+                modelNode.GetDisplayNode().SetColor(1,1,0)  # Yellow
         # Clear previous labels
         for label in getattr(widget, 'distanceLabels', []):
             widget.distanceGrid.removeWidget(label)
