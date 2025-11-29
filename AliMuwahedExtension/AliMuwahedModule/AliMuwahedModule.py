@@ -4,6 +4,10 @@ import os
 import vtk
 
 import slicer, vtk, qt, SampleData
+"""
+AliMuwahedModule: Slicer module for interactive thermal ablation needle planning.
+Each major section is annotated with comments explaining which project question/task it implements.
+"""
 from slicer.ScriptedLoadableModule import *
 from slicer.util import *
 
@@ -40,6 +44,8 @@ class AliMuwahedModule(ScriptedLoadableModule):
 #
 
 class AliMuwahedModuleWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
+        # Q0: Module and UI setup
+        # This section sets up the Slicer module widget and all UI buttons.
     """Uses ScriptedLoadableModuleWidget base class, available at:
     https://github.com/Slicer/Slicer/blob/master/Base/Python/slicer/ScriptedLoadableModule.py
     """
@@ -54,6 +60,8 @@ class AliMuwahedModuleWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         self.logic = AliMuwahedModuleLogic()
 
     def setup(self):
+        # Q0: UI setup
+        # Adds buttons for each project task and sets up the collapsible distance display grid.
         """
         Called when the user opens the module the first time and the widget is initialized.
         """
@@ -100,12 +108,14 @@ class AliMuwahedModuleWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
 
     # Create Needles button callback function
     def onCreateNeedlesButtonClicked(self):
-        # Q1: Add new needle (pair of fiducials and cylinder)
+        # Q1: Needle creation and interaction
+        # Adds a new pair of fiducials and a cylinder (needle) each time the button is pressed.
         self.logic.createNeedles(self)
 
     # Automatic Needle Placement button
     def onAutoPlaceButtonClicked(self):
-        # Q2: Place needle tips at tumor center
+        # Q2: Automatic needle placement
+        # Moves the tip of each needle to the center of mass of the tumor mesh.
         self.logic.autoPlaceNeedleTip(self)
         
     # PrintPos button callback function
@@ -114,10 +124,13 @@ class AliMuwahedModuleWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         self.logic.printPosF1()
 
     def onComputeDistancesButtonClicked(self):
-        # Q3: Compute and display needle-vessel distances in the interface
+        # Q3: Computation of distances and display of result
+        # Computes and displays minimum distance from each needle to each vessel mesh.
         self.logic.computeNeedleVesselDistances(self)
 
     def onFiducialSelected(self, caller, event):
+        # Q3/Q4: Interactive single-needle risk display
+        # When a fiducial is selected, show distances for the corresponding needle only.
         idx = caller.GetSelectedControlPoint()
         if idx is None:
             return
@@ -139,7 +152,9 @@ class AliMuwahedModuleLogic(ScriptedLoadableModuleLogic):
 
     # Q1: Needle creation and interaction
     def createNeedles(self, widget):
-        # Get or create fiducial node
+        # Q1: Needle creation and interaction
+        # Creates or gets the fiducial node, adds a pair of control points (needle endpoints), and builds the VTK pipeline for the cylinder.
+        # Observers are added for both ModifiedEvent and PointModifiedEvent to enable live updates.
         try:
             fiducialNode = getNode('F')
         except slicer.util.MRMLNodeNotFoundException:
@@ -173,18 +188,19 @@ class AliMuwahedModuleLogic(ScriptedLoadableModuleLogic):
         modelNode.GetDisplayNode().SetRepresentation(1)
         self.needleLineSources.append(lineSource)
         self.needleModels.append(modelNode)
-        # Pass widget to observer using lambda for live update
+        # Observers for live update
         fiducialNode.AddObserver(vtk.vtkCommand.ModifiedEvent, lambda caller, event: self.onFiducialMoved(caller, event, widget))
-        # Add real-time observer for point movement
         fiducialNode.AddObserver(slicer.vtkMRMLMarkupsNode.PointModifiedEvent, lambda caller, event: self.onFiducialMoved(caller, event, widget))
 
     def onFiducialMoved(self, caller, event, widget):
-        # Update all needle geometries interactively when any fiducial point is moved
+        # Q4: Automatic update of the distance
+        # Called whenever a fiducial is moved (including during dragging). Updates needle geometry and risk display live.
         self.updateAllNeedlesFromFiducials(caller, event)
-        # Automatically update distances in the UI
         self.computeNeedleVesselDistances(widget)
 
     def updateAllNeedlesFromFiducials(self, caller, event):
+        # Q1/Q4: Update needle geometry interactively
+        # Updates all needle geometries when any fiducial is moved.
         if not self.fiducialNode:
             return
         for i, lineSource in enumerate(self.needleLineSources):
@@ -208,6 +224,8 @@ class AliMuwahedModuleLogic(ScriptedLoadableModuleLogic):
 
     # Q2: Automatic needle tip placement at tumor center of mass
     def autoPlaceNeedleTip(self, widget):
+        # Q2: Automatic needle placement
+        # Moves the tip of each needle (F-1, F-3, ...) to the center of mass of the tumor mesh, keeping direction and length.
         try:
             tumorNode = getNode('livertumor04')
             polyData = tumorNode.GetPolyData()
@@ -241,11 +259,8 @@ class AliMuwahedModuleLogic(ScriptedLoadableModuleLogic):
             print("Please create a fiducial first")
 
     def computeNeedleVesselDistances(self, widget):
-        """
-        Compute and display minimum distance from each needle to each vessel mesh in the module interface.
-        Display results in a grid layout under a collapsible section.
-        Also update needle colors: closest needle to any vessel is colored red, others yellow.
-        """
+        # Q3/Q5: Computation of distances and automatic coloring according to risk
+        # Computes minimum distance from each needle to each vessel mesh, displays results, and colors the highest-risk needle red.
         vessel_names = [
             'portalvein', 'venoussystem', 'artery'
         ]
@@ -310,9 +325,8 @@ class AliMuwahedModuleLogic(ScriptedLoadableModuleLogic):
                 widget.distanceLabels.append(distLabel)
 
     def computeSingleNeedleVesselDistances(self, widget, needleIdx):
-        """
-        Compute and display minimum distance from the selected needle to each vessel mesh in the module interface.
-        """
+        # Q3/Q4: Single needle risk display
+        # Computes and displays minimum distance from the selected needle to each vessel mesh in the UI.
         vessel_names = [
             'portalvein', 'venoussystem', 'artery'
         ]
