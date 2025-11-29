@@ -145,26 +145,24 @@ class AliMuwahedModuleLogic(ScriptedLoadableModuleLogic):
     # Q1: Needle creation and interaction
     def createNeedles(self):
         # Create or get fiducial node
-        fiducialNode = None
         try:
             fiducialNode = getNode('F')
         except slicer.util.MRMLNodeNotFoundException:
             fiducialNodeID = slicer.modules.markups.logic().AddNewFiducialNode()
             fiducialNode = getNode(fiducialNodeID)
             fiducialNode.SetName('F')
-        self.fiducialNode = fiducialNode  # Ensure this is set before use
+        self.fiducialNode = fiducialNode
+
         # Increase glyph size for visibility
         fiducialNode.GetDisplayNode().SetGlyphScale(3.0)
 
-        # Determine index for new fiducials
-        # Use AddControlPoint and SetNthControlPointLabel (not deprecated methods)
-        n = self.fiducialNode.GetNumberOfControlPoints()
+        n = fiducialNode.GetNumberOfControlPoints()
         pt1 = [0, 0, 0]
         pt2 = [0, 0, 150]
-        self.fiducialNode.AddControlPoint(vtk.vtkVector3d(*pt1))
-        self.fiducialNode.SetNthControlPointLabel(n, f"F-{n+1}")
-        self.fiducialNode.AddControlPoint(vtk.vtkVector3d(*pt2))
-        self.fiducialNode.SetNthControlPointLabel(n+1, f"F-{n+2}")
+        fiducialNode.AddControlPoint(vtk.vtkVector3d(*pt1))
+        fiducialNode.SetNthControlPointLabel(n, f"F-{n+1}")
+        fiducialNode.AddControlPoint(vtk.vtkVector3d(*pt2))
+        fiducialNode.SetNthControlPointLabel(n+1, f"F-{n+2}")
 
         # VTK pipeline: LineSource -> TubeFilter -> TriangleFilter
         lineSource = vtk.vtkLineSource()
