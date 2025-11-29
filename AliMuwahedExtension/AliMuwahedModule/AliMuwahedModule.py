@@ -160,13 +160,14 @@ class AliMuwahedModuleLogic(ScriptedLoadableModuleLogic):
         fiducialNode.GetDisplayNode().SetGlyphScale(3.0)
 
         # Determine index for new fiducials
-        n = fiducialNode.GetNumberOfControlPoints()
+        # Use AddControlPoint and SetNthControlPointLabel (not deprecated methods)
+        n = self.fiducialNode.GetNumberOfControlPoints()
         pt1 = [0, 0, 0]
-        pt2 = [0, 0, 150]  # 15cm along Z
-        fiducialNode.AddFiducial(*pt1)
-        fiducialNode.SetNthFiducialLabel(n, f"F-{n+1}")
-        fiducialNode.AddFiducial(*pt2)
-        fiducialNode.SetNthFiducialLabel(n+1, f"F-{n+2}")
+        pt2 = [0, 0, 150]
+        self.fiducialNode.AddControlPoint(vtk.vtkVector3d(*pt1))
+        self.fiducialNode.SetNthControlPointLabel(n, f"F-{n+1}")
+        self.fiducialNode.AddControlPoint(vtk.vtkVector3d(*pt2))
+        self.fiducialNode.SetNthControlPointLabel(n+1, f"F-{n+2}")
 
         # VTK pipeline: LineSource -> TubeFilter -> TriangleFilter
         lineSource = vtk.vtkLineSource()
@@ -197,14 +198,17 @@ class AliMuwahedModuleLogic(ScriptedLoadableModuleLogic):
 
         # Observe fiducial movement to update all needles and distances automatically
         fiducialNode.AddObserver(vtk.vtkCommand.ModifiedEvent, self.onFiducialMoved)
-        fiducialNode.AddObserver(vtk.vtkCommand.PointModifiedEvent, self.onFiducialMoved)
-        self.fiducialNode = fiducialNode
+        # ...existing code...
 
     def onFiducialMoved(self, caller, event):
         # Update all needle geometries interactively when any fiducial point is moved
         self.updateAllNeedlesFromFiducials(caller, event)
         # Automatically update distances in the UI
-        self.computeNeedleVesselDistances(self.widget)
+        # Pass widget from the widget class, not self.widget
+        from slicer import app
+        widget = app.activeModule().widgetRepresentation()
+        if widget:
+            self.computeNeedleVesselDistances(widget)
 
     def updateAllNeedlesFromFiducials(self, caller, event):
         """
@@ -240,7 +244,7 @@ class AliMuwahedModuleLogic(ScriptedLoadableModuleLogic):
             self.needleModels[i].SetAndObservePolyData(triangleFilter.GetOutput())
 
     # Q2: Automatic needle tip placement at tumor center of mass
-    def autoPlaceNeedleTip(self):
+    def autoPlaceNeedleTip(self, widget):
         """
         Automatically place the tip of each needle (F-1, F-3, ...) at the center of mass of the tumor mesh.
         Also update the corresponding F-2 to keep the same direction and length.
@@ -263,22 +267,17 @@ class AliMuwahedModuleLogic(ScriptedLoadableModuleLogic):
         # Move F-1, F-3, ... to center of mass and update F-2, F-4, ... accordingly
         if self.fiducialNode:
             for i in range(0, self.fiducialNode.GetNumberOfControlPoints(), 2):
-                # Get old F-2 position and direction
                 if self.fiducialNode.GetNumberOfControlPoints() > i+1:
                     pt2 = [0,0,0]
                     self.fiducialNode.GetNthControlPointPosition(i+1, pt2)
-                    # Compute direction from old F-1 to F-2
                     old_pt1 = [0,0,0]
                     self.fiducialNode.GetNthControlPointPosition(i, old_pt1)
                     direction = [pt2[j] - old_pt1[j] for j in range(3)]
-                    # Set new F-1
                     self.fiducialNode.SetNthControlPointPosition(i, com)
-                    # Set new F-2 to keep same direction and length
                     new_pt2 = [com[j] + direction[j] for j in range(3)]
                     self.fiducialNode.SetNthControlPointPosition(i+1, new_pt2)
-        # Update needles and distances
         self.updateAllNeedlesFromFiducials(self.fiducialNode, None)
-        self.computeNeedleVesselDistances(self.widget)
+        self.computeNeedleVesselDistances(widget)
 
     def printPosF1(self, caller=None, event=None): 
         try:
