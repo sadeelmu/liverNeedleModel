@@ -225,7 +225,9 @@ class AliMuwahedModuleLogic(ScriptedLoadableModuleLogic):
                 if self.fiducialNode.GetNumberOfControlPoints() > i+1:
                     pt2 = [0,0,0]
                     self.fiducialNode.GetNthControlPointPosition(i+1, pt2)
-                    direction = [pt2[j] - self.fiducialNode.GetNthControlPointPosition(i, [0,0,0])[j] for j in range(3)]
+                    old_pt1 = [0,0,0]
+                    self.fiducialNode.GetNthControlPointPosition(i, old_pt1)
+                    direction = [pt2[j] - old_pt1[j] for j in range(3)]
                     self.fiducialNode.SetNthControlPointPosition(i, com)
                     new_pt2 = [com[j] + direction[j] for j in range(3)]
                     self.fiducialNode.SetNthControlPointPosition(i+1, new_pt2)
