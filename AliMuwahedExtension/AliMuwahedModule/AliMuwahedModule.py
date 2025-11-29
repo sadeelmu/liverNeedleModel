@@ -60,12 +60,6 @@ class AliMuwahedModuleWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         # initialisation that needs to be here - don't remove
         ScriptedLoadableModuleWidget.setup(self)
 
-        # HelloWorld button
-        helloWorldButton = qt.QPushButton("Hello world")
-        helloWorldButton.toolTip = "Print 'Hello world' in standard window"
-        self.layout.addWidget(helloWorldButton)
-        helloWorldButton.connect('clicked(bool)', self.onHelloWorldButtonClicked)
-
         # PrintPos button
         PrintPosButton = qt.QPushButton("Print pos")
         self.layout.addWidget(PrintPosButton)
@@ -77,31 +71,36 @@ class AliMuwahedModuleWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         self.layout.addWidget(createNeedlesButton)
         createNeedlesButton.connect('clicked(bool)', self.onCreateNeedlesButtonClicked)
 
-        # Automatic Needle Placement button
+        # Q2: Automatic Needle Placement button
         autoPlaceButton = qt.QPushButton("Auto Place Needle Tip")
         autoPlaceButton.toolTip = "Automatically place needle tip (F-1, F-3, ...) at tumor center of mass."
         self.layout.addWidget(autoPlaceButton)
         autoPlaceButton.connect('clicked(bool)', self.onAutoPlaceButtonClicked)
 
+        # Q3: Compute Distances button
+        computeDistancesButton = qt.QPushButton("Compute Needle-Vessel Distances")
+        computeDistancesButton.toolTip = "Compute and display minimum distance from each needle to each vessel."
+        self.layout.addWidget(computeDistancesButton)
+        computeDistancesButton.connect('clicked(bool)', self.onComputeDistancesButtonClicked)
+
     # Create Needles button callback function
     def onCreateNeedlesButtonClicked(self):
+        # Q1: Add new needle (pair of fiducials and cylinder)
         self.logic.createNeedles()
 
     # Automatic Needle Placement button
     def onAutoPlaceButtonClicked(self):
+        # Q2: Place needle tips at tumor center
         self.logic.autoPlaceNeedleTip()
-
-    # HelloWorld button callback function
-    def onHelloWorldButtonClicked(self):
-        # get message to display from the logic
-        message = self.logic.process()
-        # display the message in a separate window (message box)
-        qt.QMessageBox.information(slicer.util.mainWindow(), 'Slicer Python', message)
-
+        
     # PrintPos button callback function
     def onPrintPosButtonButtonClicked(self):
         # call logic function to print position of the first fiducial (requires a fiducial to be added beforehand to work properly)
         self.logic.printPosF1()
+
+    def onComputeDistancesButtonClicked(self):
+        # Q3: Compute and display needle-vessel distances
+        self.logic.computeNeedleVesselDistances(self)
 
 #%%
 #
@@ -116,6 +115,7 @@ class AliMuwahedModuleLogic(ScriptedLoadableModuleLogic):
         self.needleModels = []       # Store model nodes for each needle
         self.fiducialNode = None
 
+    # Q1: Needle creation and interaction
     def createNeedles(self):
         """
         Add a new needle (cylinder) between a new pair of fiducial points each time the button is pressed.
@@ -207,6 +207,7 @@ class AliMuwahedModuleLogic(ScriptedLoadableModuleLogic):
 
             self.needleModels[i].SetAndObservePolyData(triangleFilter.GetOutput())
 
+    # Q2: Automatic needle tip placement at tumor center of mass
     def autoPlaceNeedleTip(self):
         """
         Automatically place the tip of each needle (F-1, F-3, ...) at the center of mass of the tumor mesh.
@@ -231,9 +232,6 @@ class AliMuwahedModuleLogic(ScriptedLoadableModuleLogic):
             for i in range(0, self.fiducialNode.GetNumberOfControlPoints(), 2):
                 self.fiducialNode.SetNthControlPointPosition(i, com)
 
-    def process(self):
-        return "Hello world!"
-
     def printPosF1(self, caller=None, event=None): 
         try:
             f = getNode('F')
@@ -243,6 +241,42 @@ class AliMuwahedModuleLogic(ScriptedLoadableModuleLogic):
         except slicer.util.MRMLNodeNotFoundException:
             print("Please create a fiducial first")
 
+    def computeNeedleVesselDistances(self, widget):
+        """
+        Compute and display minimum distance from each needle to each vessel mesh.
+        """
+        # Vessel mesh names (update as needed)
+        vessel_names = [
+            'portalvein', 'venoussystem', 'artery'
+        ]
+        results = []
+        for needleIdx, modelNode in enumerate(self.needleModels):
+            needlePolyData = modelNode.GetPolyData()
+            needle_results = []
+            for vessel_name in vessel_names:
+                try:
+                    vesselNode = getNode(vessel_name)
+                except slicer.util.MRMLNodeNotFoundException:
+                    needle_results.append(f"{vessel_name}: not found")
+                    continue
+                vesselPolyData = vesselNode.GetPolyData()
+                # Compute distance from each point on needle to vessel
+                distanceFilter = vtk.vtkDistancePolyDataFilter()
+                distanceFilter.SetInputData(0, needlePolyData)
+                distanceFilter.SetInputData(1, vesselPolyData)
+                distanceFilter.Update()
+                distances = distanceFilter.GetOutput().GetPointData().GetArray("Distance")
+                if not distances:
+                    needle_results.append(f"{vessel_name}: error")
+                    continue
+                minDist = min([distances.GetValue(i) for i in range(distances.GetNumberOfTuples())])
+                needle_results.append(f"{vessel_name}: {minDist/10:.2f} cm")
+            results.append((needleIdx+1, needle_results))
+        # Display results in a message box
+        msg = ""
+        for idx, vessel_results in results:
+            msg += f"Needle {idx}:\n" + "\n".join(vessel_results) + "\n\n"
+        qt.QMessageBox.information(slicer.util.mainWindow(), 'Needle-Vessel Distances', msg)
 
 #%%
 #
