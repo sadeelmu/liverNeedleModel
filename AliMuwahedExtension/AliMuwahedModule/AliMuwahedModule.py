@@ -197,9 +197,17 @@ class AliMuwahedModuleLogic(ScriptedLoadableModuleLogic):
         self.needleLineSources.append(lineSource)
         self.needleModels.append(modelNode)
 
-        # Observe fiducial movement to update all needles
-        fiducialNode.AddObserver(vtk.vtkCommand.ModifiedEvent, self.updateAllNeedlesFromFiducials)
-        fiducialNode.AddObserver(vtk.vtkCommand.PointModifiedEvent, self.updateAllNeedlesFromFiducials)
+        # Observe fiducial movement to update all needles and distances automatically
+        fiducialNode.AddObserver(vtk.vtkCommand.ModifiedEvent, self.onFiducialMoved)
+        fiducialNode.AddObserver(vtk.vtkCommand.PointModifiedEvent, self.onFiducialMoved)
+
+    def onFiducialMoved(self, caller, event):
+        # Automatically update distances when any fiducial is moved
+        # Only update if a 'free' point (F-2, F-4, ...) is moved
+        numPoints = caller.GetNumberOfControlPoints()
+        # Check which points are moved (for simplicity, update for any move)
+        # You can optimize to only update for even indices if needed
+        self.computeNeedleVesselDistances(self.widget)
 
     def updateAllNeedlesFromFiducials(self, caller, event):
         """
