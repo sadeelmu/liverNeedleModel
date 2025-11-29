@@ -240,7 +240,7 @@ class AliMuwahedModuleLogic(ScriptedLoadableModuleLogic):
         labelmapNode.SetAndObserveImageData(outImage)
         labelmapNode.SetOrigin(image.GetOrigin())
         labelmapNode.SetSpacing(image.GetSpacing())
-        labelmapNode.SetExtent(image.GetExtent())
+        # Removed: labelmapNode.SetExtent(image.GetExtent())
         return labelmapNode
 
     def countVoxelsInLabelmap(self, labelmap, labelValue=1):
