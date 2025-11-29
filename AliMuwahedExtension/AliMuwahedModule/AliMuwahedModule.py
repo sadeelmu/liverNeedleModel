@@ -245,10 +245,10 @@ class AliMuwahedModuleLogic(ScriptedLoadableModuleLogic):
 
     def countVoxelsInLabelmap(self, labelmap, labelValue=1):
         """
-        Counts the number of voxels in a vtkImageData labelmap that have the given labelValue (default 1).
+        Counts the number of voxels in a vtkMRMLLabelMapVolumeNode that have the given labelValue (default 1).
         Returns the count and the volume in mm^3 (count * voxel volume).
         """
-        arr = labelmap.GetPointData().GetScalars()
+        arr = labelmap.GetImageData().GetPointData().GetScalars()
         count = 0
         for i in range(arr.GetNumberOfTuples()):
             if arr.GetValue(i) == labelValue:
@@ -530,8 +530,8 @@ class AliMuwahedModuleLogic(ScriptedLoadableModuleLogic):
             print("No ablation labelmap created")
             return 0, 0, 0, 0, 0
         # Step 4: Intersection - tumor voxels inside ablation
-        arrTumor = tumorLabelmap.GetPointData().GetScalars()
-        arrAblation = ablationLabelmap.GetPointData().GetScalars()
+        arrTumor = tumorLabelmap.GetImageData().GetPointData().GetScalars()
+        arrAblation = ablationLabelmap.GetImageData().GetPointData().GetScalars()
         ablatedCount = 0
         for i in range(arrTumor.GetNumberOfTuples()):
             if arrTumor.GetValue(i) == 1 and arrAblation.GetValue(i) == 1:
