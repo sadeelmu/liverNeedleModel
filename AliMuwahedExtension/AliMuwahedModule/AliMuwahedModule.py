@@ -177,46 +177,76 @@ class AliMuwahedModuleLogic(ScriptedLoadableModuleLogic):
         Returns vtkImageData (binary: 1 inside, 0 outside).
         """
         polyData = modelNode.GetPolyData()
-        if referenceVolumeNode is not None:
-            refImage = referenceVolumeNode
-            origin = refImage.GetOrigin()
-            spacing = refImage.GetSpacing()
-            extent = refImage.GetExtent()
-            image = vtk.vtkImageData()
-            image.SetSpacing(spacing)
-            image.SetOrigin(origin)
-            image.SetExtent(extent)
-            image.AllocateScalars(vtk.VTK_UNSIGNED_CHAR, 1)
-            image.GetPointData().GetScalars().Fill(0)
-        else:
-            bounds = polyData.GetBounds()
-            minX, maxX, minY, maxY, minZ, maxZ = bounds
-            dimX = int((maxX - minX) / spacing) + 1
-            dimY = int((maxY - minY) / spacing) + 1
-            dimZ = int((maxZ - minZ) / spacing) + 1
-            image = vtk.vtkImageData()
-            image.SetSpacing(spacing, spacing, spacing)
-            image.SetOrigin(minX, minY, minZ)
-            image.SetDimensions(dimX, dimY, dimZ)
-            image.AllocateScalars(vtk.VTK_UNSIGNED_CHAR, 1)
-            image.GetPointData().GetScalars().Fill(0)
-        pol2stenc = vtk.vtkPolyDataToImageStencil()
-        pol2stenc.SetInputData(polyData)
-        pol2stenc.SetOutputOrigin(image.GetOrigin())
-        pol2stenc.SetOutputSpacing(image.GetSpacing())
-        pol2stenc.SetOutputWholeExtent(image.GetExtent())
-        pol2stenc.Update()
-        imgstenc = vtk.vtkImageStencil()
-        imgstenc.SetInputData(image)
-        imgstenc.SetStencilData(pol2stenc.GetOutput())
-        imgstenc.ReverseStencilOff()
-        imgstenc.SetBackgroundValue(0)
-        imgstenc.Update()
-        outImage = imgstenc.GetOutput()
-        outImage.GetPointData().GetScalars().SetName("Label")
-        # Debug print
-        print(f"Labelmap for {modelNode.GetName()}: origin={outImage.GetOrigin()}, spacing={outImage.GetSpacing()}, extent={outImage.GetExtent()}")
-        return outImage
+        if polyData is None:
+            print(f"Model {modelNode.GetName()} has no polyData")
+            return None
+
+        # Debug: print mesh bounds and number of points/polys
+        bounds = [0]*6
+        polyData.GetBounds(bounds)
+        print(f"Model {modelNode.GetName()} bounds: {bounds}")
+        print(f"Model {modelNode.GetName()} points: {polyData.GetNumberOfPoints()}, polys: {polyData.GetNumberOfPolys()}")
+        if polyData.GetNumberOfPoints() == 0 or polyData.GetNumberOfPolys() == 0:
+            print(f"Model {modelNode.GetName()} is empty (no points or polys)")
+            return None
+
+        # Check if mesh is closed (watertight)
+        featureEdges = vtk.vtkFeatureEdges()
+        featureEdges.SetInputData(polyData)
+        featureEdges.BoundaryEdgesOn()
+        featureEdges.FeatureEdgesOff()
+        featureEdges.ManifoldEdgesOff()
+        featureEdges.NonManifoldEdgesOff()
+        featureEdges.Update()
+        nBoundaryEdges = featureEdges.GetOutput().GetNumberOfCells()
+        print(f"Model {modelNode.GetName()} boundary edges: {nBoundaryEdges} (should be 0 for closed mesh)")
+
+        # Get reference labelmap geometry
+        refImage = referenceVolumeNode.GetImageData()
+        if refImage is None:
+            print(f"Reference labelmap {referenceVolumeNode.GetName()} has no image data")
+            return None
+
+        # Create empty image with same geometry
+        image = vtk.vtkImageData()
+        image.DeepCopy(refImage)
+        image.GetPointData().GetScalars().Fill(0)
+
+        # Convert mesh to stencil
+        stencil = vtk.vtkPolyDataToImageStencil()
+        stencil.SetInputData(polyData)
+        stencil.SetOutputOrigin(image.GetOrigin())
+        stencil.SetOutputSpacing(image.GetSpacing())
+        stencil.SetOutputWholeExtent(image.GetExtent())
+        stencil.Update()
+
+        # Apply stencil to image
+        imgStencil = vtk.vtkImageStencil()
+        imgStencil.SetInputData(image)
+        imgStencil.SetStencilData(stencil.GetOutput())
+        imgStencil.ReverseStencilOff()
+        imgStencil.SetBackgroundValue(0)
+        imgStencil.Update()
+
+        # Debug: print label value used
+        print(f"Setting label value: {labelValue}")
+
+        # Set ablation label value (only inside stencil)
+        outImage = imgStencil.GetOutput()
+        # Instead of filling all, set only inside stencil
+        # This is already handled by vtkImageStencil, so no need to fill again
+
+        # Create new labelmap node
+        arr = outImage.GetPointData().GetScalars()
+        nVoxels = arr.GetNumberOfTuples()
+        nInside = sum([arr.GetTuple1(i) > 0 for i in range(nVoxels)])
+        print(f"Labelmap for {modelNode.GetName()}: {nInside} voxels set to 1 out of {nVoxels}")
+        labelmapNode = slicer.mrmlScene.AddNewNodeByClass('vtkMRMLLabelMapVolumeNode', modelNode.GetName() + '-labelmap')
+        labelmapNode.SetAndObserveImageData(outImage)
+        labelmapNode.SetOrigin(image.GetOrigin())
+        labelmapNode.SetSpacing(image.GetSpacing())
+        labelmapNode.SetExtent(image.GetExtent())
+        return labelmapNode
 
     def countVoxelsInLabelmap(self, labelmap, labelValue=1):
         """
