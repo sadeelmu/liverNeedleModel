@@ -98,6 +98,13 @@ class AliMuwahedModuleWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         self.distanceGrid = qt.QGridLayout()
         self.distanceCollapsible.setLayout(self.distanceGrid)
         self.distanceLabels = []  # Store references to labels for updating
+        # Q7: Ablation metrics display section (collapsible)
+        self.ablationCollapsible = slicer.qMRMLCollapsibleButton()
+        self.ablationCollapsible.text = "Ablation Metrics"
+        self.layout.addWidget(self.ablationCollapsible)
+        self.ablationGrid = qt.QGridLayout()
+        self.ablationCollapsible.setLayout(self.ablationGrid)
+        self.ablationLabels = []  # Store references to ablation metric labels
 
         # Observe selection changes on fiducials (use only ModifiedEvent)
         try:
@@ -136,6 +143,8 @@ class AliMuwahedModuleWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
             return
         needleIdx = idx // 2  # Each needle has 2 fiducials
         self.logic.computeSingleNeedleVesselDistances(self, needleIdx)
+        # Q7: Update ablation metrics live when fiducial is selected/moved
+        self.logic.updateAblationMetrics(self)
 
 #%%
 #
@@ -304,6 +313,8 @@ class AliMuwahedModuleLogic(ScriptedLoadableModuleLogic):
         # Q4: Automatic update of the distance
         self.updateAllNeedlesFromFiducials(caller, event)
         self.computeNeedleVesselDistances(widget)
+        # Q7: Update ablation metrics live when fiducial moves
+        self.updateAblationMetrics(widget)
 
     # --- Tumor/Needle logic ---
     def autoPlaceNeedleTip(self, widget):
@@ -443,3 +454,73 @@ class AliMuwahedModuleLogic(ScriptedLoadableModuleLogic):
             distLabel = qt.QLabel(value)
             widget.distanceGrid.addWidget(distLabel, 1, v+1)
             widget.distanceLabels.append(distLabel)
+
+    # --- Q7: Ablation metrics ---
+    def computeAblationTumorOverlap(self, tumorNode, ablationSphereNodes, spacing=1.0):
+        """
+        Computes overlap between tumor and ablation spheres.
+        Returns: ablated tumor voxel count, ablated tumor volume, total tumor voxel count, total tumor volume, efficiency (fraction).
+        """
+        # Convert tumor to labelmap
+        tumorLabelmap = self.modelNodeToLabelmap(tumorNode, spacing=spacing)
+        # Convert all ablation spheres to labelmaps and union them
+        ablationLabelmap = None
+        for sphereNode in ablationSphereNodes:
+            sphereLabelmap = self.modelNodeToLabelmap(sphereNode, spacing=spacing)
+            if ablationLabelmap is None:
+                ablationLabelmap = vtk.vtkImageData()
+                ablationLabelmap.DeepCopy(sphereLabelmap)
+            else:
+                # Union: set voxels to 1 if either is 1
+                arrA = ablationLabelmap.GetPointData().GetScalars()
+                arrB = sphereLabelmap.GetPointData().GetScalars()
+                for i in range(arrA.GetNumberOfTuples()):
+                    if arrB.GetValue(i) == 1:
+                        arrA.SetValue(i, 1)
+        # Intersection: tumor voxels inside ablation
+        arrTumor = tumorLabelmap.GetPointData().GetScalars()
+        arrAblation = ablationLabelmap.GetPointData().GetScalars()
+        ablatedCount = 0
+        for i in range(arrTumor.GetNumberOfTuples()):
+            if arrTumor.GetValue(i) == 1 and arrAblation.GetValue(i) == 1:
+                ablatedCount += 1
+        # Total tumor
+        totalCount, totalVolume = self.countVoxelsInLabelmap(tumorLabelmap, labelValue=1)
+        # Ablated tumor volume
+        spacing = tumorLabelmap.GetSpacing()
+        voxelVolume = spacing[0] * spacing[1] * spacing[2]
+        ablatedVolume = ablatedCount * voxelVolume
+        efficiency = ablatedVolume / totalVolume if totalVolume > 0 else 0
+        return ablatedCount, ablatedVolume, totalCount, totalVolume, efficiency
+
+    def updateAblationMetrics(self, widget):
+        """
+        Updates the ablation metrics UI section with current ablation/tumor overlap and efficiency.
+        """
+        try:
+            tumorNode = getNode('livertumor04')
+        except slicer.util.MRMLNodeNotFoundException:
+            return
+        ablationSphereNodes = self.ablationSpheres
+        if not ablationSphereNodes:
+            return
+        ablatedCount, ablatedVolume, totalCount, totalVolume, efficiency = self.computeAblationTumorOverlap(tumorNode, ablationSphereNodes, spacing=1.0)
+        # Clear previous labels
+        for label in getattr(widget, 'ablationLabels', []):
+            widget.ablationGrid.removeWidget(label)
+            label.deleteLater()
+        widget.ablationLabels = []
+        # Add metrics
+        metrics = [
+            ("Ablated Tumor Voxels", ablatedCount),
+            ("Ablated Tumor Volume (mm³)", f"{ablatedVolume:.2f}"),
+            ("Total Tumor Voxels", totalCount),
+            ("Total Tumor Volume (mm³)", f"{totalVolume:.2f}"),
+            ("Ablation Efficiency (%)", f"{efficiency*100:.2f}")
+        ]
+        for i, (labelText, value) in enumerate(metrics):
+            label = qt.QLabel(f"{labelText}: {value}")
+            widget.ablationGrid.addWidget(label, i, 0)
+            widget.ablationLabels.append(label)
+        # Optionally, print to console for debug
+        print(f"Ablation metrics: Ablated {ablatedCount} voxels, {ablatedVolume:.2f} mm³; Total {totalCount} voxels, {totalVolume:.2f} mm³; Efficiency {efficiency*100:.2f}%")
