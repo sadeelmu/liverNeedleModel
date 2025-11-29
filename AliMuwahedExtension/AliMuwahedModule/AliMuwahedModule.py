@@ -74,9 +74,9 @@ class AliMuwahedWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         self.layout.addWidget(PrintPosButton)
         PrintPosButton.connect('clicked(bool)', self.onPrintPosButtonButtonClicked)
 
-        # Create Needles button
+        # Create Needles button: Automatically creates fiducials and a cylinder (needle) between them
         createNeedlesButton = qt.QPushButton("Create Needles")
-        createNeedlesButton.toolTip = "Automatically create fiducials and cylinders (needles)"
+        createNeedlesButton.toolTip = "Automatically create fiducials and cylinders (needles) between control points."
         self.layout.addWidget(createNeedlesButton)
         createNeedlesButton.connect('clicked(bool)', self.onCreateNeedlesButtonClicked)
 
@@ -101,7 +101,7 @@ class AliMuwahedWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
 # AliMuwahedLogic
 #
 
-#AliMuwahedLogic: Contains basic logic, including a method to print the position of the first fiducial.
+#AliMuwahedLogic: Implements the actual computation.
 class AliMuwahedLogic(ScriptedLoadableModuleLogic):
     """This class should implement all the actual
     computation done by your module.  The interface
@@ -121,6 +121,15 @@ class AliMuwahedLogic(ScriptedLoadableModuleLogic):
         self.needleModels = []       # Store model nodes for each needle
         self.fiducialNode = None
     def createNeedles(self, numNeedles=1):
+        """
+        Create needles (cylinders) between pairs of automatically generated fiducial points.
+        - Removes previous needles and fiducials.
+        - Creates two fiducials (F-1, F-2) for one needle.
+        - Builds a cylinder using vtkLineSource, vtkTubeFilter, and vtkTriangleFilter.
+        - Adds the cylinder to the scene in wireframe mode.
+        - Increases glyph size for fiducials for better visualization.
+        - Observes fiducial movement to update the needle geometry interactively.
+        """
         # Remove previous needles and fiducials if any
         for modelNode in self.needleModels:
             slicer.mrmlScene.RemoveNode(modelNode)
@@ -140,17 +149,17 @@ class AliMuwahedLogic(ScriptedLoadableModuleLogic):
         # Increase glyph size for visibility
         fiducialNode.GetDisplayNode().SetGlyphScale(3.0)
 
-        # Example: create 1 needle (2 points, can be extended)
+        # Create two fiducials for one needle (can be extended for more needles)
         points = [
-            [0, 0, 0],
-            [0, 0, 150]  # 15cm along Z
+            [0, 0, 0],           # F-1
+            [0, 0, 150]          # F-2, 15cm along Z
         ]
         fiducialNode.RemoveAllControlPoints()
         for i, pt in enumerate(points):
             fiducialNode.AddFiducial(*pt)
             fiducialNode.SetNthFiducialLabel(i, f"F-{i+1}")
 
-        # Create cylinder (needle) between F-1 and F-2
+        # VTK pipeline: LineSource -> TubeFilter -> TriangleFilter
         lineSource = vtk.vtkLineSource()
         lineSource.SetPoint1(points[0])
         lineSource.SetPoint2(points[1])
@@ -166,7 +175,7 @@ class AliMuwahedLogic(ScriptedLoadableModuleLogic):
         triangleFilter.SetInputConnection(tubeFilter.GetOutputPort())
         triangleFilter.Update()
 
-        # Add to scene
+        # Add cylinder (needle) to scene
         modelNode = slicer.modules.models.logic().AddModel(triangleFilter.GetOutput())
         modelNode.SetName("Needle-1")
         modelNode.GetDisplayNode().SetColor(1,1,0)  # Yellow
@@ -176,11 +185,16 @@ class AliMuwahedLogic(ScriptedLoadableModuleLogic):
         self.needleLineSources.append(lineSource)
         self.needleModels.append(modelNode)
 
-        # Observe fiducial movement to update needle
+        # Observe fiducial movement to update needle geometry
         fiducialNode.AddObserver(vtk.vtkCommand.ModifiedEvent, self.updateNeedleFromFiducials)
 
     def updateNeedleFromFiducials(self, caller, event):
-        # Update needle geometry when fiducials move
+        """
+        Update the needle geometry interactively when fiducial points are moved.
+        - Reads the positions of F-1 and F-2.
+        - Updates the vtkLineSource, vtkTubeFilter, and vtkTriangleFilter.
+        - Updates the cylinder (needle) model in the scene.
+        """
         if not self.fiducialNode or not self.needleLineSources:
             return
         if self.fiducialNode.GetNumberOfControlPoints() < 2:
