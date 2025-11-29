@@ -180,6 +180,8 @@ class AliMuwahedModuleLogic(ScriptedLoadableModuleLogic):
         self.needleModels.append(modelNode)
         # Pass widget to observer using lambda for live update
         fiducialNode.AddObserver(vtk.vtkCommand.ModifiedEvent, lambda caller, event: self.onFiducialMoved(caller, event, widget))
+        # Add real-time observer for point movement
+        fiducialNode.AddObserver(slicer.vtkMRMLMarkupsNode.PointModifiedEvent, lambda caller, event: self.onFiducialMoved(caller, event, widget))
 
     def onFiducialMoved(self, caller, event, widget):
         # Update all needle geometries interactively when any fiducial point is moved
