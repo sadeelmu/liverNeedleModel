@@ -172,22 +172,34 @@ class AliMuwahedModuleLogic(ScriptedLoadableModuleLogic):
     def modelNodeToLabelmap(self, modelNode, referenceVolumeNode=None, spacing=1.0):
         """
         Converts a model node (tumor or ablation sphere) to a binary labelmap (vtkImageData).
-        If referenceVolumeNode is provided, uses its geometry; otherwise, creates a new image covering the model bounds.
+        If referenceVolumeNode is provided, uses its geometry (origin, spacing, extent); otherwise, creates a new image covering the model bounds.
         Spacing is in mm.
         Returns vtkImageData (binary: 1 inside, 0 outside).
         """
         polyData = modelNode.GetPolyData()
-        bounds = polyData.GetBounds()
-        minX, maxX, minY, maxY, minZ, maxZ = bounds
-        dimX = int((maxX - minX) / spacing) + 1
-        dimY = int((maxY - minY) / spacing) + 1
-        dimZ = int((maxZ - minZ) / spacing) + 1
-        image = vtk.vtkImageData()
-        image.SetSpacing(spacing, spacing, spacing)
-        image.SetOrigin(minX, minY, minZ)
-        image.SetDimensions(dimX, dimY, dimZ)
-        image.AllocateScalars(vtk.VTK_UNSIGNED_CHAR, 1)
-        image.GetPointData().GetScalars().Fill(0)
+        if referenceVolumeNode is not None:
+            refImage = referenceVolumeNode
+            origin = refImage.GetOrigin()
+            spacing = refImage.GetSpacing()
+            extent = refImage.GetExtent()
+            image = vtk.vtkImageData()
+            image.SetSpacing(spacing)
+            image.SetOrigin(origin)
+            image.SetExtent(extent)
+            image.AllocateScalars(vtk.VTK_UNSIGNED_CHAR, 1)
+            image.GetPointData().GetScalars().Fill(0)
+        else:
+            bounds = polyData.GetBounds()
+            minX, maxX, minY, maxY, minZ, maxZ = bounds
+            dimX = int((maxX - minX) / spacing) + 1
+            dimY = int((maxY - minY) / spacing) + 1
+            dimZ = int((maxZ - minZ) / spacing) + 1
+            image = vtk.vtkImageData()
+            image.SetSpacing(spacing, spacing, spacing)
+            image.SetOrigin(minX, minY, minZ)
+            image.SetDimensions(dimX, dimY, dimZ)
+            image.AllocateScalars(vtk.VTK_UNSIGNED_CHAR, 1)
+            image.GetPointData().GetScalars().Fill(0)
         pol2stenc = vtk.vtkPolyDataToImageStencil()
         pol2stenc.SetInputData(polyData)
         pol2stenc.SetOutputOrigin(image.GetOrigin())
@@ -202,6 +214,8 @@ class AliMuwahedModuleLogic(ScriptedLoadableModuleLogic):
         imgstenc.Update()
         outImage = imgstenc.GetOutput()
         outImage.GetPointData().GetScalars().SetName("Label")
+        # Debug print
+        print(f"Labelmap for {modelNode.GetName()}: origin={outImage.GetOrigin()}, spacing={outImage.GetSpacing()}, extent={outImage.GetExtent()}")
         return outImage
 
     def countVoxelsInLabelmap(self, labelmap, labelValue=1):
@@ -471,7 +485,7 @@ class AliMuwahedModuleLogic(ScriptedLoadableModuleLogic):
         Returns: ablated tumor voxel count, ablated tumor volume, total tumor voxel count, total tumor volume, efficiency (fraction).
         Steps:
         1. Convert tumor mesh to binary labelmap (voxels inside tumor = 1).
-        2. Convert each ablation sphere mesh to binary labelmap.
+        2. Convert each ablation sphere mesh to binary labelmap using tumor labelmap geometry as reference.
         3. Union all ablation sphere labelmaps (any voxel covered by any sphere = 1).
         4. For each voxel, if inside both tumor and ablation, count as ablated.
         5. Count all tumor voxels (labelmap = 1).
@@ -480,20 +494,21 @@ class AliMuwahedModuleLogic(ScriptedLoadableModuleLogic):
         """
         # Step 1: Convert tumor mesh to labelmap
         tumorLabelmap = self.modelNodeToLabelmap(tumorNode, spacing=spacing)
-        # Step 2 & 3: Convert ablation spheres to labelmaps and union them
+        # Step 2 & 3: Convert ablation spheres to labelmaps using tumor labelmap geometry
         ablationLabelmap = None
         for sphereNode in ablationSphereNodes:
-            sphereLabelmap = self.modelNodeToLabelmap(sphereNode, spacing=spacing)
+            sphereLabelmap = self.modelNodeToLabelmap(sphereNode, referenceVolumeNode=tumorLabelmap, spacing=spacing)
             if ablationLabelmap is None:
                 ablationLabelmap = vtk.vtkImageData()
                 ablationLabelmap.DeepCopy(sphereLabelmap)
             else:
-                # Union: set voxels to 1 if either is 1
                 arrA = ablationLabelmap.GetPointData().GetScalars()
                 arrB = sphereLabelmap.GetPointData().GetScalars()
                 for i in range(arrA.GetNumberOfTuples()):
                     if arrB.GetValue(i) == 1:
                         arrA.SetValue(i, 1)
+        # Debug print for ablation labelmap
+        print(f"Ablation labelmap: origin={ablationLabelmap.GetOrigin()}, spacing={ablationLabelmap.GetSpacing()}, extent={ablationLabelmap.GetExtent()}")
         # Step 4: Intersection - tumor voxels inside ablation
         arrTumor = tumorLabelmap.GetPointData().GetScalars()
         arrAblation = ablationLabelmap.GetPointData().GetScalars()
@@ -509,6 +524,7 @@ class AliMuwahedModuleLogic(ScriptedLoadableModuleLogic):
         ablatedVolume = ablatedCount * voxelVolume
         # Step 7: Compute efficiency
         efficiency = ablatedVolume / totalVolume if totalVolume > 0 else 0
+        print(f"Tumor voxels: {totalCount}, Ablated voxels: {ablatedCount}")
         return ablatedCount, ablatedVolume, totalCount, totalVolume, efficiency
 
     def updateAblationMetrics(self, widget):
