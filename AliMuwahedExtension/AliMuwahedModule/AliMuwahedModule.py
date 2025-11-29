@@ -40,6 +40,14 @@ class AliMuwahedModule(ScriptedLoadableModule):
 #
 
 class AliMuwahedModuleWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
+            # Automatic Needle Placement button
+            autoPlaceButton = qt.QPushButton("Auto Place Needle Tip")
+            autoPlaceButton.toolTip = "Automatically place needle tip (F-1) at tumor center of mass."
+            self.layout.addWidget(autoPlaceButton)
+            autoPlaceButton.connect('clicked(bool)', self.onAutoPlaceButtonClicked)
+
+        def onAutoPlaceButtonClicked(self):
+            self.logic.autoPlaceNeedleTip()
     """Uses ScriptedLoadableModuleWidget base class, available at:
     https://github.com/Slicer/Slicer/blob/master/Base/Python/slicer/ScriptedLoadableModule.py
     """
@@ -101,6 +109,34 @@ class AliMuwahedModuleWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
 #
 
 class AliMuwahedModuleLogic(ScriptedLoadableModuleLogic):
+        # Q2: Automatic needle tip placement at tumor center of mass
+        # This function finds the tumor mesh, computes its center of mass, and moves F-1 there
+        def autoPlaceNeedleTip(self):
+            """
+            Automatically place the first fiducial (F-1) at the center of mass of the tumor mesh.
+            """
+            # Q2: Find tumor model node (by name, e.g., 'livertumor04')
+            tumorNode = None
+            try:
+                tumorNode = getNode('livertumor04')
+            except slicer.util.MRMLNodeNotFoundException:
+                # Q2: Error if tumor not found
+                slicer.util.errorDisplay("Tumor model 'livertumor04' not found in scene.")
+                return
+            polyData = tumorNode.GetPolyData()
+            if not polyData:
+                # Q2: Error if tumor has no polydata
+                slicer.util.errorDisplay("Tumor model has no polydata.")
+                return
+            # Q2: Compute center of mass
+            centerOfMassFilter = vtk.vtkCenterOfMass()
+            centerOfMassFilter.SetInputData(polyData)
+            centerOfMassFilter.SetUseScalarsAsWeights(False)
+            centerOfMassFilter.Update()
+            com = centerOfMassFilter.GetCenter()
+            # Q2: Move F-1 to center of mass
+            if self.fiducialNode and self.fiducialNode.GetNumberOfControlPoints() > 0:
+                self.fiducialNode.SetNthControlPointPosition(0, com)
     """This class should implement all the actual
     computation done by your module.  The interface
     should be such that other python code can import
@@ -121,20 +157,9 @@ class AliMuwahedModuleLogic(ScriptedLoadableModuleLogic):
 
     def createNeedles(self, numNeedles=1):
         """
-        Create needles (cylinders) between pairs of automatically generated fiducial points.
-        - Removes previous needles and fiducials.
-        - Creates two fiducials (F-1, F-2) for one needle.
-        - Builds a cylinder using vtkLineSource, vtkTubeFilter, and vtkTriangleFilter.
-        - Adds the cylinder to the scene in wireframe mode.
-        - Increases glyph size for fiducials for better visualization.
-        - Observes fiducial movement to update the needle geometry interactively.
+        Add a new needle (cylinder) between a new pair of fiducial points each time the button is pressed.
+        Does not remove previous needles or fiducials.
         """
-        # Remove previous needles and fiducials if any
-        for modelNode in self.needleModels:
-            slicer.mrmlScene.RemoveNode(modelNode)
-        self.needleLineSources = []
-        self.needleModels = []
-
         # Create or get fiducial node
         fiducialNode = None
         try:
@@ -148,20 +173,19 @@ class AliMuwahedModuleLogic(ScriptedLoadableModuleLogic):
         # Increase glyph size for visibility
         fiducialNode.GetDisplayNode().SetGlyphScale(3.0)
 
-        # Create two fiducials for one needle (can be extended for more needles)
-        points = [
-            [0, 0, 0],           # F-1
-            [0, 0, 150]          # F-2, 15cm along Z
-        ]
-        fiducialNode.RemoveAllControlPoints()
-        for i, pt in enumerate(points):
-            fiducialNode.AddFiducial(*pt)
-            fiducialNode.SetNthFiducialLabel(i, f"F-{i+1}")
+        # Determine index for new fiducials
+        n = fiducialNode.GetNumberOfControlPoints()
+        pt1 = [0, 0, 0]
+        pt2 = [0, 0, 150]  # 15cm along Z
+        fiducialNode.AddFiducial(*pt1)
+        fiducialNode.SetNthFiducialLabel(n, f"F-{n+1}")
+        fiducialNode.AddFiducial(*pt2)
+        fiducialNode.SetNthFiducialLabel(n+1, f"F-{n+2}")
 
         # VTK pipeline: LineSource -> TubeFilter -> TriangleFilter
         lineSource = vtk.vtkLineSource()
-        lineSource.SetPoint1(points[0])
-        lineSource.SetPoint2(points[1])
+        lineSource.SetPoint1(pt1)
+        lineSource.SetPoint2(pt2)
         lineSource.Update()
 
         tubeFilter = vtk.vtkTubeFilter()
@@ -175,8 +199,9 @@ class AliMuwahedModuleLogic(ScriptedLoadableModuleLogic):
         triangleFilter.Update()
 
         # Add cylinder (needle) to scene
+        needleIndex = len(self.needleLineSources) + 1
         modelNode = slicer.modules.models.logic().AddModel(triangleFilter.GetOutput())
-        modelNode.SetName("Needle-1")
+        modelNode.SetName(f"Needle-{needleIndex}")
         modelNode.GetDisplayNode().SetColor(1,1,0)  # Yellow
         modelNode.GetDisplayNode().SetEdgeVisibility(True)
         modelNode.GetDisplayNode().SetRepresentation(1)  # Wireframe
@@ -184,42 +209,42 @@ class AliMuwahedModuleLogic(ScriptedLoadableModuleLogic):
         self.needleLineSources.append(lineSource)
         self.needleModels.append(modelNode)
 
-        # Observe fiducial movement to update needle geometry immediately
-        # ModifiedEvent may not always fire on single point move, so also observe PointModifiedEvent
-        fiducialNode.AddObserver(vtk.vtkCommand.ModifiedEvent, self.updateNeedleFromFiducials)
-        fiducialNode.AddObserver(vtk.vtkCommand.PointModifiedEvent, self.updateNeedleFromFiducials)
+        # Observe fiducial movement to update all needles
+        fiducialNode.AddObserver(vtk.vtkCommand.ModifiedEvent, self.updateAllNeedlesFromFiducials)
+        fiducialNode.AddObserver(vtk.vtkCommand.PointModifiedEvent, self.updateAllNeedlesFromFiducials)
 
-    def updateNeedleFromFiducials(self, caller, event):
+    def updateAllNeedlesFromFiducials(self, caller, event):
         """
-        Update the needle geometry interactively when fiducial points are moved.
-        - Reads the positions of F-1 and F-2.
-        - Updates the vtkLineSource, vtkTubeFilter, and vtkTriangleFilter.
-        - Updates the cylinder (needle) model in the scene.
+        Update all needle geometries interactively when any fiducial point is moved.
         """
         if not self.fiducialNode or not self.needleLineSources:
             return
-        if self.fiducialNode.GetNumberOfControlPoints() < 2:
-            return
-        pt1 = [0,0,0]
-        pt2 = [0,0,0]
-        self.fiducialNode.GetNthControlPointPosition(0, pt1)
-        self.fiducialNode.GetNthControlPointPosition(1, pt2)
-        lineSource = self.needleLineSources[0]
-        lineSource.SetPoint1(pt1)
-        lineSource.SetPoint2(pt2)
-        lineSource.Update()
+        numNeedles = len(self.needleLineSources)
+        for i in range(numNeedles):
+            idx1 = i*2
+            idx2 = idx1+1
+            if self.fiducialNode.GetNumberOfControlPoints() <= idx2:
+                continue
+            pt1 = [0,0,0]
+            pt2 = [0,0,0]
+            self.fiducialNode.GetNthControlPointPosition(idx1, pt1)
+            self.fiducialNode.GetNthControlPointPosition(idx2, pt2)
+            lineSource = self.needleLineSources[i]
+            lineSource.SetPoint1(pt1)
+            lineSource.SetPoint2(pt2)
+            lineSource.Update()
 
-        tubeFilter = vtk.vtkTubeFilter()
-        tubeFilter.SetInputConnection(lineSource.GetOutputPort())
-        tubeFilter.SetRadius(1.0)
-        tubeFilter.SetNumberOfSides(20)
-        tubeFilter.Update()
+            tubeFilter = vtk.vtkTubeFilter()
+            tubeFilter.SetInputConnection(lineSource.GetOutputPort())
+            tubeFilter.SetRadius(1.0)
+            tubeFilter.SetNumberOfSides(20)
+            tubeFilter.Update()
 
-        triangleFilter = vtk.vtkTriangleFilter()
-        triangleFilter.SetInputConnection(tubeFilter.GetOutputPort())
-        triangleFilter.Update()
+            triangleFilter = vtk.vtkTriangleFilter()
+            triangleFilter.SetInputConnection(tubeFilter.GetOutputPort())
+            triangleFilter.Update()
 
-        self.needleModels[0].SetAndObservePolyData(triangleFilter.GetOutput())
+            self.needleModels[i].SetAndObservePolyData(triangleFilter.GetOutput())
 
     def process(self):
         return "Hello world!"
