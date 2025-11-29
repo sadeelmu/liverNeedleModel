@@ -62,8 +62,8 @@ class AliMuwahedWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         """
         # initialisation that needs to be here - don't remove
         ScriptedLoadableModuleWidget.setup(self)
-        self.layout = self.layout()  # <-- This line ensures self.layout is set
-
+        testLabel = qt.QLabel("Test label")
+        self.layout.addWidget(testLabel)
         # HelloWorld button
         helloWorldButton = qt.QPushButton("Hello world")
         helloWorldButton.toolTip = "Print 'Hello world' in standard window"
