@@ -462,10 +462,18 @@ class AliMuwahedModuleLogic(ScriptedLoadableModuleLogic):
         """
         Computes overlap between tumor and ablation spheres.
         Returns: ablated tumor voxel count, ablated tumor volume, total tumor voxel count, total tumor volume, efficiency (fraction).
+        Steps:
+        1. Convert tumor mesh to binary labelmap (voxels inside tumor = 1).
+        2. Convert each ablation sphere mesh to binary labelmap.
+        3. Union all ablation sphere labelmaps (any voxel covered by any sphere = 1).
+        4. For each voxel, if inside both tumor and ablation, count as ablated.
+        5. Count all tumor voxels (labelmap = 1).
+        6. Compute volumes by multiplying voxel count by voxel volume (spacing³).
+        7. Efficiency = ablated tumor volume / total tumor volume.
         """
-        # Convert tumor to labelmap
+        # Step 1: Convert tumor mesh to labelmap
         tumorLabelmap = self.modelNodeToLabelmap(tumorNode, spacing=spacing)
-        # Convert all ablation spheres to labelmaps and union them
+        # Step 2 & 3: Convert ablation spheres to labelmaps and union them
         ablationLabelmap = None
         for sphereNode in ablationSphereNodes:
             sphereLabelmap = self.modelNodeToLabelmap(sphereNode, spacing=spacing)
@@ -479,25 +487,31 @@ class AliMuwahedModuleLogic(ScriptedLoadableModuleLogic):
                 for i in range(arrA.GetNumberOfTuples()):
                     if arrB.GetValue(i) == 1:
                         arrA.SetValue(i, 1)
-        # Intersection: tumor voxels inside ablation
+        # Step 4: Intersection - tumor voxels inside ablation
         arrTumor = tumorLabelmap.GetPointData().GetScalars()
         arrAblation = ablationLabelmap.GetPointData().GetScalars()
         ablatedCount = 0
         for i in range(arrTumor.GetNumberOfTuples()):
             if arrTumor.GetValue(i) == 1 and arrAblation.GetValue(i) == 1:
                 ablatedCount += 1
-        # Total tumor
+        # Step 5: Count all tumor voxels
         totalCount, totalVolume = self.countVoxelsInLabelmap(tumorLabelmap, labelValue=1)
-        # Ablated tumor volume
+        # Step 6: Compute ablated tumor volume
         spacing = tumorLabelmap.GetSpacing()
         voxelVolume = spacing[0] * spacing[1] * spacing[2]
         ablatedVolume = ablatedCount * voxelVolume
+        # Step 7: Compute efficiency
         efficiency = ablatedVolume / totalVolume if totalVolume > 0 else 0
         return ablatedCount, ablatedVolume, totalCount, totalVolume, efficiency
 
     def updateAblationMetrics(self, widget):
         """
         Updates the ablation metrics UI section with current ablation/tumor overlap and efficiency.
+        Steps:
+        1. Get tumor and ablation sphere nodes.
+        2. Compute overlap and metrics using computeAblationTumorOverlap.
+        3. Clear previous UI labels.
+        4. Display metrics: ablated voxels, ablated volume, total tumor voxels, total tumor volume, efficiency.
         """
         try:
             tumorNode = getNode('livertumor04')
@@ -506,13 +520,14 @@ class AliMuwahedModuleLogic(ScriptedLoadableModuleLogic):
         ablationSphereNodes = self.ablationSpheres
         if not ablationSphereNodes:
             return
+        # Step 2: Compute metrics
         ablatedCount, ablatedVolume, totalCount, totalVolume, efficiency = self.computeAblationTumorOverlap(tumorNode, ablationSphereNodes, spacing=1.0)
-        # Clear previous labels
+        # Step 3: Clear previous labels
         for label in getattr(widget, 'ablationLabels', []):
             widget.ablationGrid.removeWidget(label)
             label.deleteLater()
         widget.ablationLabels = []
-        # Add metrics
+        # Step 4: Add metrics to UI
         metrics = [
             ("Ablated Tumor Voxels", ablatedCount),
             ("Ablated Tumor Volume (mm³)", f"{ablatedVolume:.2f}"),
