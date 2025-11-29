@@ -207,7 +207,7 @@ class AliMuwahedModuleLogic(ScriptedLoadableModuleLogic):
         sphereSource.Update()
         sphereModelNode = slicer.modules.models.logic().AddModel(sphereSource.GetOutput())
         sphereModelNode.SetName(f"Ablation-{len(self.ablationSpheres)+1}")
-        sphereModelNode.GetDisplayNode().SetColor(0,1,0)  # Green
+        sphereModelNode.GetDisplayNode().SetColor(1,0,0)  # Red
         sphereModelNode.GetDisplayNode().SetOpacity(0.3)
         self.ablationSpheres.append(sphereModelNode)
         # Observers for live update
