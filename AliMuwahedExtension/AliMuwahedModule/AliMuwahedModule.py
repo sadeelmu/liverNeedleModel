@@ -143,7 +143,6 @@ class AliMuwahedModuleWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
 #
 
 class AliMuwahedModuleLogic(ScriptedLoadableModuleLogic):
-    """Implements all computation for the module."""
     def __init__(self):
         ScriptedLoadableModuleLogic.__init__(self)
         self.needleLineSources = []  # Store line sources for each needle
@@ -151,7 +150,58 @@ class AliMuwahedModuleLogic(ScriptedLoadableModuleLogic):
         self.ablationSpheres = []    # Store ablation sphere model nodes for each needle
         self.fiducialNode = None
 
-    # Q1: Needle creation and interaction
+    # --- Mesh/Labelmap helpers (Q7) ---
+    def modelNodeToLabelmap(self, modelNode, referenceVolumeNode=None, spacing=1.0):
+        """
+        Converts a model node (tumor or ablation sphere) to a binary labelmap (vtkImageData).
+        If referenceVolumeNode is provided, uses its geometry; otherwise, creates a new image covering the model bounds.
+        Spacing is in mm.
+        Returns vtkImageData (binary: 1 inside, 0 outside).
+        """
+        polyData = modelNode.GetPolyData()
+        bounds = polyData.GetBounds()
+        minX, maxX, minY, maxY, minZ, maxZ = bounds
+        dimX = int((maxX - minX) / spacing) + 1
+        dimY = int((maxY - minY) / spacing) + 1
+        dimZ = int((maxZ - minZ) / spacing) + 1
+        image = vtk.vtkImageData()
+        image.SetSpacing(spacing, spacing, spacing)
+        image.SetOrigin(minX, minY, minZ)
+        image.SetDimensions(dimX, dimY, dimZ)
+        image.AllocateScalars(vtk.VTK_UNSIGNED_CHAR, 1)
+        image.GetPointData().GetScalars().Fill(0)
+        pol2stenc = vtk.vtkPolyDataToImageStencil()
+        pol2stenc.SetInputData(polyData)
+        pol2stenc.SetOutputOrigin(image.GetOrigin())
+        pol2stenc.SetOutputSpacing(image.GetSpacing())
+        pol2stenc.SetOutputWholeExtent(image.GetExtent())
+        pol2stenc.Update()
+        imgstenc = vtk.vtkImageStencil()
+        imgstenc.SetInputData(image)
+        imgstenc.SetStencilData(pol2stenc.GetOutput())
+        imgstenc.ReverseStencilOff()
+        imgstenc.SetBackgroundValue(0)
+        imgstenc.Update()
+        outImage = imgstenc.GetOutput()
+        outImage.GetPointData().GetScalars().SetName("Label")
+        return outImage
+
+    def countVoxelsInLabelmap(self, labelmap, labelValue=1):
+        """
+        Counts the number of voxels in a vtkImageData labelmap that have the given labelValue (default 1).
+        Returns the count and the volume in mm^3 (count * voxel volume).
+        """
+        arr = labelmap.GetPointData().GetScalars()
+        count = 0
+        for i in range(arr.GetNumberOfTuples()):
+            if arr.GetValue(i) == labelValue:
+                count += 1
+        spacing = labelmap.GetSpacing()
+        voxelVolume = spacing[0] * spacing[1] * spacing[2]
+        totalVolume = count * voxelVolume
+        return count, totalVolume
+
+    # --- Geometry/Update logic ---
     def createNeedles(self, widget):
         # Q1: Needle creation and interaction
         # Creates or gets the fiducial node, adds a pair of control points (needle endpoints), and builds the VTK pipeline for the cylinder.
@@ -191,7 +241,6 @@ class AliMuwahedModuleLogic(ScriptedLoadableModuleLogic):
         self.needleModels.append(modelNode)
         # Q6: Create ablation sphere at 5mm from internal tip
         ablationRadius = 10.0  # 10mm diameter (example, adjust as needed)
-        # Compute direction from pt1 to pt2
         direction = [pt2[j] - pt1[j] for j in range(3)]
         length = sum([d**2 for d in direction]) ** 0.5
         if length == 0:
@@ -210,19 +259,11 @@ class AliMuwahedModuleLogic(ScriptedLoadableModuleLogic):
         sphereModelNode.GetDisplayNode().SetColor(1,0,0)  # Red
         sphereModelNode.GetDisplayNode().SetOpacity(0.3)
         self.ablationSpheres.append(sphereModelNode)
-        # Observers for live update
         fiducialNode.AddObserver(vtk.vtkCommand.ModifiedEvent, lambda caller, event: self.onFiducialMoved(caller, event, widget))
         fiducialNode.AddObserver(slicer.vtkMRMLMarkupsNode.PointModifiedEvent, lambda caller, event: self.onFiducialMoved(caller, event, widget))
 
-    def onFiducialMoved(self, caller, event, widget):
-        # Q4: Automatic update of the distance
-        # Called whenever a fiducial is moved (including during dragging). Updates needle geometry and risk display live.
-        self.updateAllNeedlesFromFiducials(caller, event)
-        self.computeNeedleVesselDistances(widget)
-
     def updateAllNeedlesFromFiducials(self, caller, event):
         # Q1/Q4/Q6: Update needle geometry and ablation sphere interactively
-        # Updates all needle geometries and ablation spheres when any fiducial is moved.
         if not self.fiducialNode:
             return
         for i, lineSource in enumerate(self.needleLineSources):
@@ -233,7 +274,6 @@ class AliMuwahedModuleLogic(ScriptedLoadableModuleLogic):
             pt2 = [0,0,0]
             self.fiducialNode.GetNthControlPointPosition(idx1, pt1)
             self.fiducialNode.GetNthControlPointPosition(idx2, pt2)
-            # Update needle geometry
             lineSource.SetPoint1(pt1)
             lineSource.SetPoint2(pt2)
             tubeFilter = vtk.vtkTubeFilter()
@@ -244,7 +284,6 @@ class AliMuwahedModuleLogic(ScriptedLoadableModuleLogic):
             triangleFilter.SetInputConnection(tubeFilter.GetOutputPort())
             triangleFilter.Update()
             self.needleModels[i].SetAndObservePolyData(triangleFilter.GetOutput())
-            # Q6: Update ablation sphere position
             direction = [pt2[j] - pt1[j] for j in range(3)]
             length = sum([d**2 for d in direction]) ** 0.5
             if length == 0:
@@ -252,7 +291,7 @@ class AliMuwahedModuleLogic(ScriptedLoadableModuleLogic):
             else:
                 offset = [direction[j]/length*5.0 for j in range(3)]
             sphereCenter = [pt1[j] + offset[j] for j in range(3)]
-            ablationRadius = 10.0  # 10mm diameter (example, adjust as needed)
+            ablationRadius = 10.0
             sphereSource = vtk.vtkSphereSource()
             sphereSource.SetCenter(*sphereCenter)
             sphereSource.SetRadius(ablationRadius/2.0)
@@ -261,10 +300,14 @@ class AliMuwahedModuleLogic(ScriptedLoadableModuleLogic):
             sphereSource.Update()
             self.ablationSpheres[i].SetAndObservePolyData(sphereSource.GetOutput())
 
-    # Q2: Automatic needle tip placement at tumor center of mass
+    def onFiducialMoved(self, caller, event, widget):
+        # Q4: Automatic update of the distance
+        self.updateAllNeedlesFromFiducials(caller, event)
+        self.computeNeedleVesselDistances(widget)
+
+    # --- Tumor/Needle logic ---
     def autoPlaceNeedleTip(self, widget):
         # Q2: Automatic needle placement
-        # Moves the tip of each needle (F-1, F-3, ...) to the center of mass of the tumor mesh, keeping direction and length.
         try:
             tumorNode = getNode('livertumor04')
             polyData = tumorNode.GetPolyData()
@@ -297,9 +340,9 @@ class AliMuwahedModuleLogic(ScriptedLoadableModuleLogic):
         except slicer.util.MRMLNodeNotFoundException:
             print("Please create a fiducial first")
 
+    # --- Risk/Distance logic ---
     def computeNeedleVesselDistances(self, widget):
         # Q3/Q5: Computation of distances and automatic coloring according to risk
-        # Computes minimum distance from each needle to each vessel mesh, displays results, and colors the highest-risk needle red.
         vessel_names = [
             'portalvein', 'venoussystem', 'artery'
         ]
@@ -330,22 +373,18 @@ class AliMuwahedModuleLogic(ScriptedLoadableModuleLogic):
                 if minDist < minDistForNeedle:
                     minDistForNeedle = minDist
             results.append(needle_results)
-            # Track needle with smallest risk (closest to any vessel)
             if minDistForNeedle < minRisk:
                 minRisk = minDistForNeedle
                 minRiskNeedleIdx = needleIdx
-        # Update needle colors
         for i, modelNode in enumerate(self.needleModels):
             if i == minRiskNeedleIdx:
-                modelNode.GetDisplayNode().SetColor(1,0,0)  # Red
+                modelNode.GetDisplayNode().SetColor(1,0,0)
             else:
-                modelNode.GetDisplayNode().SetColor(1,1,0)  # Yellow
-        # Clear previous labels
+                modelNode.GetDisplayNode().SetColor(1,1,0)
         for label in getattr(widget, 'distanceLabels', []):
             widget.distanceGrid.removeWidget(label)
             label.deleteLater()
         widget.distanceLabels = []
-        # Add header
         header = qt.QLabel("Needle/Vessel")
         widget.distanceGrid.addWidget(header, 0, 0)
         widget.distanceLabels.append(header)
@@ -353,7 +392,6 @@ class AliMuwahedModuleLogic(ScriptedLoadableModuleLogic):
             vesselLabel = qt.QLabel(vessel_name)
             widget.distanceGrid.addWidget(vesselLabel, 0, v+1)
             widget.distanceLabels.append(vesselLabel)
-        # Add data rows
         for n, needle_results in enumerate(results):
             needleLabel = qt.QLabel(f"Needle {n+1}")
             widget.distanceGrid.addWidget(needleLabel, n+1, 0)
@@ -365,7 +403,6 @@ class AliMuwahedModuleLogic(ScriptedLoadableModuleLogic):
 
     def computeSingleNeedleVesselDistances(self, widget, needleIdx):
         # Q3/Q4: Single needle risk display
-        # Computes and displays minimum distance from the selected needle to each vessel mesh in the UI.
         vessel_names = [
             'portalvein', 'venoussystem', 'artery'
         ]
@@ -391,12 +428,10 @@ class AliMuwahedModuleLogic(ScriptedLoadableModuleLogic):
                 continue
             minDist = min([distances.GetValue(i) for i in range(distances.GetNumberOfTuples())])
             needle_results.append(f"{minDist/10:.2f} cm")
-        # Clear previous labels
         for label in getattr(widget, 'distanceLabels', []):
             widget.distanceGrid.removeWidget(label)
             label.deleteLater()
         widget.distanceLabels = []
-        # Add header
         header = qt.QLabel(f"Needle {needleIdx+1}")
         widget.distanceGrid.addWidget(header, 0, 0)
         widget.distanceLabels.append(header)
@@ -404,7 +439,6 @@ class AliMuwahedModuleLogic(ScriptedLoadableModuleLogic):
             vesselLabel = qt.QLabel(vessel_name)
             widget.distanceGrid.addWidget(vesselLabel, 0, v+1)
             widget.distanceLabels.append(vesselLabel)
-        # Add data row
         for v, value in enumerate(needle_results):
             distLabel = qt.QLabel(value)
             widget.distanceGrid.addWidget(distLabel, 1, v+1)
