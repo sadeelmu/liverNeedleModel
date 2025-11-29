@@ -124,6 +124,8 @@ class AliMuwahedModuleWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         # Q2: Automatic needle placement
         # Moves the tip of each needle to the center of mass of the tumor mesh.
         self.logic.autoPlaceNeedleTip(self)
+        # Q7: Update ablation metrics after autoplace
+        self.logic.updateAblationMetrics(self)
         
     # PrintPos button callback function
     def onPrintPosButtonButtonClicked(self):
@@ -145,7 +147,12 @@ class AliMuwahedModuleWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         # Show distances for the last needle (most recently added/moved)
         needleIdx = (n - 1) // 2
         self.logic.computeSingleNeedleVesselDistances(self, needleIdx)
-        # Q7: Update ablation metrics live when fiducial is selected/moved
+
+    def onAutoPlaceButtonClicked(self):
+        # Q2: Automatic needle placement
+        # Moves the tip of each needle to the center of mass of the tumor mesh.
+        self.logic.autoPlaceNeedleTip(self)
+        # Q7: Update ablation metrics after autoplace
         self.logic.updateAblationMetrics(self)
 
 #%%
