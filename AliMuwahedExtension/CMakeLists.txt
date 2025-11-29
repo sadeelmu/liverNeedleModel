@@ -1,15 +1,15 @@
 cmake_minimum_required(VERSION 3.13.4)
 
-project(myNiceExtension)
+project(AliMuwahedExtension)
 
 #-----------------------------------------------------------------------------
 # Extension meta-information
-set(EXTENSION_HOMEPAGE "https://www.slicer.org/wiki/Documentation/Nightly/Extensions/myNiceExtension")
+set(EXTENSION_HOMEPAGE "https://www.slicer.org/wiki/Documentation/Nightly/Extensions/AliMuwahedExtension")
 set(EXTENSION_CATEGORY "Examples")
-set(EXTENSION_CONTRIBUTORS "Caroline Essert (Univ. Strasbourg)")
-set(EXTENSION_DESCRIPTION "Hello this is my Nice Extension")
-set(EXTENSION_ICONURL "http://www.example.com/Slicer/Extensions/myNiceExtension.png")
-set(EXTENSION_SCREENSHOTURLS "http://www.example.com/Slicer/Extensions/myNiceExtension/Screenshots/1.png")
+set(EXTENSION_CONTRIBUTORS "Caroline Essert (Univ. Strasbourg), Kinan Ali (HealthTech), and Sadel Muwahed(HealthTech)")
+set(EXTENSION_DESCRIPTION "This extension was created by Kinan Ali and Sadel Muwahed")
+set(EXTENSION_ICONURL "http://www.example.com/Slicer/Extensions/AliMuwahedExtension.png")
+set(EXTENSION_SCREENSHOTURLS "http://www.example.com/Slicer/Extensions/AliMuwahedExtension/Screenshots/1.png")
 set(EXTENSION_DEPENDS "NA") # Specified as a list or "NA" if no dependencies
 
 #-----------------------------------------------------------------------------
