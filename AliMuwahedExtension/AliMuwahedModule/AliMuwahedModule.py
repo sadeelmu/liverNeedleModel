@@ -105,7 +105,11 @@ class AliMuwahedModuleWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         self.ablationGrid = qt.QGridLayout()
         self.ablationCollapsible.setLayout(self.ablationGrid)
         self.ablationLabels = []  # Store references to ablation metric labels
-
+        # Add Compute Ablation Metrics button
+        computeAblationButton = qt.QPushButton("Compute Ablation Metrics")
+        computeAblationButton.toolTip = "Compute ablated volume and efficiency."
+        self.layout.addWidget(computeAblationButton)
+        computeAblationButton.connect('clicked(bool)', self.onComputeAblationButtonClicked)
         # Observe selection changes on fiducials (use only ModifiedEvent)
         try:
             fiducialNode = getNode('F')
@@ -124,8 +128,6 @@ class AliMuwahedModuleWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         # Q2: Automatic needle placement
         # Moves the tip of each needle to the center of mass of the tumor mesh.
         self.logic.autoPlaceNeedleTip(self)
-        # Q7: Update ablation metrics after autoplace
-        self.logic.updateAblationMetrics(self)
         
     # PrintPos button callback function
     def onPrintPosButtonButtonClicked(self):
@@ -148,11 +150,8 @@ class AliMuwahedModuleWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         needleIdx = (n - 1) // 2
         self.logic.computeSingleNeedleVesselDistances(self, needleIdx)
 
-    def onAutoPlaceButtonClicked(self):
-        # Q2: Automatic needle placement
-        # Moves the tip of each needle to the center of mass of the tumor mesh.
-        self.logic.autoPlaceNeedleTip(self)
-        # Q7: Update ablation metrics after autoplace
+    def onComputeAblationButtonClicked(self):
+        # Q7: Compute ablation metrics only when this button is pressed
         self.logic.updateAblationMetrics(self)
 
 #%%
@@ -169,19 +168,17 @@ class AliMuwahedModuleLogic(ScriptedLoadableModuleLogic):
         self.fiducialNode = None
 
     # --- Mesh/Labelmap helpers (Q7) ---
-    def modelNodeToLabelmap(self, modelNode, referenceVolumeNode=None, spacing=1.0):
+    def modelNodeToLabelmap(self, modelNode, referenceVolumeNode=None, spacing=1.0, labelValue=1):
         """
         Converts a model node (tumor or ablation sphere) to a binary labelmap (vtkImageData).
         If referenceVolumeNode is provided, uses its geometry (origin, spacing, extent); otherwise, creates a new image covering the model bounds.
         Spacing is in mm.
-        Returns vtkImageData (binary: 1 inside, 0 outside).
+        Returns vtkMRMLLabelMapVolumeNode (binary: 1 inside, 0 outside).
         """
         polyData = modelNode.GetPolyData()
         if polyData is None:
             print(f"Model {modelNode.GetName()} has no polyData")
             return None
-
-        # Debug: print mesh bounds and number of points/polys
         bounds = [0]*6
         polyData.GetBounds(bounds)
         print(f"Model {modelNode.GetName()} bounds: {bounds}")
@@ -189,7 +186,6 @@ class AliMuwahedModuleLogic(ScriptedLoadableModuleLogic):
         if polyData.GetNumberOfPoints() == 0 or polyData.GetNumberOfPolys() == 0:
             print(f"Model {modelNode.GetName()} is empty (no points or polys)")
             return None
-
         # Check if mesh is closed (watertight)
         featureEdges = vtk.vtkFeatureEdges()
         featureEdges.SetInputData(polyData)
@@ -200,18 +196,26 @@ class AliMuwahedModuleLogic(ScriptedLoadableModuleLogic):
         featureEdges.Update()
         nBoundaryEdges = featureEdges.GetOutput().GetNumberOfCells()
         print(f"Model {modelNode.GetName()} boundary edges: {nBoundaryEdges} (should be 0 for closed mesh)")
-
-        # Get reference labelmap geometry
-        refImage = referenceVolumeNode.GetImageData()
-        if refImage is None:
-            print(f"Reference labelmap {referenceVolumeNode.GetName()} has no image data")
-            return None
-
-        # Create empty image with same geometry
-        image = vtk.vtkImageData()
-        image.DeepCopy(refImage)
-        image.GetPointData().GetScalars().Fill(0)
-
+        # Get reference labelmap geometry or create from mesh bounds
+        if referenceVolumeNode is not None:
+            refImage = referenceVolumeNode.GetImageData()
+            if refImage is None:
+                print(f"Reference labelmap {referenceVolumeNode.GetName()} has no image data")
+                return None
+            image = vtk.vtkImageData()
+            image.DeepCopy(refImage)
+            image.GetPointData().GetScalars().Fill(0)
+        else:
+            minX, maxX, minY, maxY, minZ, maxZ = bounds
+            dimX = int((maxX - minX) / spacing) + 1
+            dimY = int((maxY - minY) / spacing) + 1
+            dimZ = int((maxZ - minZ) / spacing) + 1
+            image = vtk.vtkImageData()
+            image.SetSpacing(spacing, spacing, spacing)
+            image.SetOrigin(minX, minY, minZ)
+            image.SetDimensions(dimX, dimY, dimZ)
+            image.AllocateScalars(vtk.VTK_UNSIGNED_CHAR, 1)
+            image.GetPointData().GetScalars().Fill(0)
         # Convert mesh to stencil
         stencil = vtk.vtkPolyDataToImageStencil()
         stencil.SetInputData(polyData)
@@ -219,7 +223,6 @@ class AliMuwahedModuleLogic(ScriptedLoadableModuleLogic):
         stencil.SetOutputSpacing(image.GetSpacing())
         stencil.SetOutputWholeExtent(image.GetExtent())
         stencil.Update()
-
         # Apply stencil to image
         imgStencil = vtk.vtkImageStencil()
         imgStencil.SetInputData(image)
@@ -227,16 +230,8 @@ class AliMuwahedModuleLogic(ScriptedLoadableModuleLogic):
         imgStencil.ReverseStencilOff()
         imgStencil.SetBackgroundValue(0)
         imgStencil.Update()
-
-        # Debug: print label value used
         print(f"Setting label value: {labelValue}")
-
-        # Set ablation label value (only inside stencil)
         outImage = imgStencil.GetOutput()
-        # Instead of filling all, set only inside stencil
-        # This is already handled by vtkImageStencil, so no need to fill again
-
-        # Create new labelmap node
         arr = outImage.GetPointData().GetScalars()
         nVoxels = arr.GetNumberOfTuples()
         nInside = sum([arr.GetTuple1(i) > 0 for i in range(nVoxels)])
@@ -366,8 +361,6 @@ class AliMuwahedModuleLogic(ScriptedLoadableModuleLogic):
         # Q4: Automatic update of the distance
         self.updateAllNeedlesFromFiducials(caller, event)
         self.computeNeedleVesselDistances(widget)
-        # Q7: Update ablation metrics live when fiducial moves
-        self.updateAblationMetrics(widget)
 
     # --- Tumor/Needle logic ---
     def autoPlaceNeedleTip(self, widget):
@@ -522,23 +515,20 @@ class AliMuwahedModuleLogic(ScriptedLoadableModuleLogic):
         6. Compute volumes by multiplying voxel count by voxel volume (spacing³).
         7. Efficiency = ablated tumor volume / total tumor volume.
         """
-        # Step 1: Convert tumor mesh to labelmap
-        tumorLabelmap = self.modelNodeToLabelmap(tumorNode, spacing=spacing)
-        # Step 2 & 3: Convert ablation spheres to labelmaps using tumor labelmap geometry
+        # Always use mesh bounds for tumor labelmap if no reference is available
+        tumorLabelmap = self.modelNodeToLabelmap(tumorNode, referenceVolumeNode=None, spacing=spacing)
+        if tumorLabelmap is None:
+            print("Tumor labelmap conversion failed")
+            return 0, 0, 0, 0, 0
         ablationLabelmap = None
-        for sphereNode in ablationSphereNodes:
-            sphereLabelmap = self.modelNodeToLabelmap(sphereNode, referenceVolumeNode=tumorLabelmap, spacing=spacing)
+        for ablationNode in ablationSphereNodes:
+            ablationLabelmap = self.modelNodeToLabelmap(ablationNode, referenceVolumeNode=tumorLabelmap, spacing=spacing)
             if ablationLabelmap is None:
-                ablationLabelmap = vtk.vtkImageData()
-                ablationLabelmap.DeepCopy(sphereLabelmap)
-            else:
-                arrA = ablationLabelmap.GetPointData().GetScalars()
-                arrB = sphereLabelmap.GetPointData().GetScalars()
-                for i in range(arrA.GetNumberOfTuples()):
-                    if arrB.GetValue(i) == 1:
-                        arrA.SetValue(i, 1)
-        # Debug print for ablation labelmap
-        print(f"Ablation labelmap: origin={ablationLabelmap.GetOrigin()}, spacing={ablationLabelmap.GetSpacing()}, extent={ablationLabelmap.GetExtent()}")
+                print(f"Ablation labelmap conversion failed for {ablationNode.GetName()}")
+                continue
+        if ablationLabelmap is None:
+            print("No ablation labelmap created")
+            return 0, 0, 0, 0, 0
         # Step 4: Intersection - tumor voxels inside ablation
         arrTumor = tumorLabelmap.GetPointData().GetScalars()
         arrAblation = ablationLabelmap.GetPointData().GetScalars()
