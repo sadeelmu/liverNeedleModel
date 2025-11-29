@@ -137,11 +137,13 @@ class AliMuwahedModuleWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
 
     def onFiducialSelected(self, caller, event):
         # Q3/Q4: Interactive single-needle risk display
-        # When a fiducial is selected, show distances for the corresponding needle only.
-        idx = caller.GetSelectedControlPoint()
-        if idx is None:
+        # Slicer Markups API does not provide GetSelectedControlPoint().
+        # Instead, we can use GetNumberOfControlPoints() and always show the last needle moved.
+        n = caller.GetNumberOfControlPoints()
+        if n < 2:
             return
-        needleIdx = idx // 2  # Each needle has 2 fiducials
+        # Show distances for the last needle (most recently added/moved)
+        needleIdx = (n - 1) // 2
         self.logic.computeSingleNeedleVesselDistances(self, needleIdx)
         # Q7: Update ablation metrics live when fiducial is selected/moved
         self.logic.updateAblationMetrics(self)
