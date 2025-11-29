@@ -131,8 +131,25 @@ class AliMuwahedModuleWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
     def onFiducialSelected(self, caller, event):
         # Q3/Q4: Interactive single-needle risk display
         # When a fiducial is selected, show distances for the corresponding needle only.
-        idx = caller.GetSelectedControlPoint()
-        if idx is None:
+        # Try common API names in order; keep this explicit and simple.
+        idx = -1
+        if hasattr(caller, 'GetActiveControlPointIndex'):
+            try:
+                idx = caller.GetActiveControlPointIndex()
+            except Exception:
+                idx = -1
+        elif hasattr(caller, 'GetActiveControlPoint'):
+            try:
+                idx = caller.GetActiveControlPoint()
+            except Exception:
+                idx = -1
+        elif hasattr(caller, 'GetSelectedControlPoint'):
+            try:
+                idx = caller.GetSelectedControlPoint()
+            except Exception:
+                idx = -1
+        # if nothing valid or no selection, exit
+        if idx is None or idx < 0:
             return
         needleIdx = idx // 2  # Each needle has 2 fiducials
         self.logic.computeSingleNeedleVesselDistances(self, needleIdx)
