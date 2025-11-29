@@ -106,7 +106,7 @@ class AliMuwahedModuleWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
     # Automatic Needle Placement button
     def onAutoPlaceButtonClicked(self):
         # Q2: Place needle tips at tumor center
-        self.logic.autoPlaceNeedleTip()
+        self.logic.autoPlaceNeedleTip(self)
         
     # PrintPos button callback function
     def onPrintPosButtonButtonClicked(self):
@@ -184,11 +184,8 @@ class AliMuwahedModuleLogic(ScriptedLoadableModuleLogic):
         # Update all needle geometries interactively when any fiducial point is moved
         self.updateAllNeedlesFromFiducials(caller, event)
         # Automatically update distances in the UI
-        # Pass widget from the widget class, not self.widget
-        from slicer import app
-        widget = app.activeModule().widgetRepresentation()
-        if widget:
-            self.computeNeedleVesselDistances(widget)
+        # The widget should be passed in from the widget class, not fetched here
+        # If you want auto-update, you can store a reference to the widget when needed
 
     def updateAllNeedlesFromFiducials(self, caller, event):
         if not self.fiducialNode:
