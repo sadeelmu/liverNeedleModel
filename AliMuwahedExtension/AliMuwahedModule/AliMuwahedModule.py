@@ -145,11 +145,9 @@ class AliMuwahedModuleLogic(ScriptedLoadableModuleLogic):
     # Q1: Needle creation and interaction
     def createNeedles(self):
         # Create or get fiducial node
-        try:
-            fiducialNode = getNode('F')
-        except slicer.util.MRMLNodeNotFoundException:
-            fiducialNodeID = slicer.modules.markups.logic().AddNewFiducialNode()
-            fiducialNode = getNode(fiducialNodeID)
+        fiducialNode = getNode('F') if slicer.util.getNode('F', False) else slicer.modules.markups.logic().AddNewFiducialNode()
+        if isinstance(fiducialNode, str):
+            fiducialNode = getNode(fiducialNode)
             fiducialNode.SetName('F')
         self.fiducialNode = fiducialNode
 
