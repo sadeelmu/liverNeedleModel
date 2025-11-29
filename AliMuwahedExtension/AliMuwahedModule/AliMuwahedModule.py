@@ -184,8 +184,10 @@ class AliMuwahedModuleLogic(ScriptedLoadableModuleLogic):
         self.needleLineSources.append(lineSource)
         self.needleModels.append(modelNode)
 
-        # Observe fiducial movement to update needle geometry
+        # Observe fiducial movement to update needle geometry immediately
+        # ModifiedEvent may not always fire on single point move, so also observe PointModifiedEvent
         fiducialNode.AddObserver(vtk.vtkCommand.ModifiedEvent, self.updateNeedleFromFiducials)
+        fiducialNode.AddObserver(vtk.vtkCommand.PointModifiedEvent, self.updateNeedleFromFiducials)
 
     def updateNeedleFromFiducials(self, caller, event):
         """
