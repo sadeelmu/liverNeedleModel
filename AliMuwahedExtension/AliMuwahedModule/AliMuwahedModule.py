@@ -144,16 +144,14 @@ class AliMuwahedModuleLogic(ScriptedLoadableModuleLogic):
 
     # Q1: Needle creation and interaction
     def createNeedles(self):
-        # Create or get fiducial node
-        fiducialNode = getNode('F') if slicer.util.getNode('F', False) else slicer.modules.markups.logic().AddNewFiducialNode()
-        if isinstance(fiducialNode, str):
+        # Get or create fiducial node
+        fiducialNode = slicer.util.getNode('F', False)
+        if not fiducialNode:
+            fiducialNode = slicer.modules.markups.logic().AddNewFiducialNode()
             fiducialNode = getNode(fiducialNode)
             fiducialNode.SetName('F')
         self.fiducialNode = fiducialNode
-
-        # Increase glyph size for visibility
         fiducialNode.GetDisplayNode().SetGlyphScale(3.0)
-
         n = fiducialNode.GetNumberOfControlPoints()
         pt1 = [0, 0, 0]
         pt2 = [0, 0, 150]
@@ -161,37 +159,25 @@ class AliMuwahedModuleLogic(ScriptedLoadableModuleLogic):
         fiducialNode.SetNthControlPointLabel(n, f"F-{n+1}")
         fiducialNode.AddControlPoint(vtk.vtkVector3d(*pt2))
         fiducialNode.SetNthControlPointLabel(n+1, f"F-{n+2}")
-
         # VTK pipeline: LineSource -> TubeFilter -> TriangleFilter
         lineSource = vtk.vtkLineSource()
         lineSource.SetPoint1(pt1)
         lineSource.SetPoint2(pt2)
-        lineSource.Update()
-
         tubeFilter = vtk.vtkTubeFilter()
         tubeFilter.SetInputConnection(lineSource.GetOutputPort())
-        tubeFilter.SetRadius(1.0)  # 1mm radius
+        tubeFilter.SetRadius(1.0)
         tubeFilter.SetNumberOfSides(20)
-        tubeFilter.Update()
-
         triangleFilter = vtk.vtkTriangleFilter()
         triangleFilter.SetInputConnection(tubeFilter.GetOutputPort())
         triangleFilter.Update()
-
-        # Add cylinder (needle) to scene
-        needleIndex = len(self.needleLineSources) + 1
         modelNode = slicer.modules.models.logic().AddModel(triangleFilter.GetOutput())
-        modelNode.SetName(f"Needle-{needleIndex}")
-        modelNode.GetDisplayNode().SetColor(1,1,0)  # Yellow
+        modelNode.SetName(f"Needle-{len(self.needleLineSources)+1}")
+        modelNode.GetDisplayNode().SetColor(1,1,0)
         modelNode.GetDisplayNode().SetEdgeVisibility(True)
-        modelNode.GetDisplayNode().SetRepresentation(1)  # Wireframe
-
+        modelNode.GetDisplayNode().SetRepresentation(1)
         self.needleLineSources.append(lineSource)
         self.needleModels.append(modelNode)
-
-        # Observe fiducial movement to update all needles and distances automatically
         fiducialNode.AddObserver(vtk.vtkCommand.ModifiedEvent, self.onFiducialMoved)
-        # ...existing code...
 
     def onFiducialMoved(self, caller, event):
         # Update all needle geometries interactively when any fiducial point is moved
@@ -204,68 +190,44 @@ class AliMuwahedModuleLogic(ScriptedLoadableModuleLogic):
             self.computeNeedleVesselDistances(widget)
 
     def updateAllNeedlesFromFiducials(self, caller, event):
-        """
-        Update all needle geometries interactively when any fiducial point is moved.
-        """
-        if not self.fiducialNode or not self.needleLineSources:
+        if not self.fiducialNode:
             return
-        numNeedles = len(self.needleLineSources)
-        for i in range(numNeedles):
-            idx1 = i*2
-            idx2 = idx1+1
+        for i, lineSource in enumerate(self.needleLineSources):
+            idx1, idx2 = i*2, i*2+1
             if self.fiducialNode.GetNumberOfControlPoints() <= idx2:
                 continue
             pt1 = [0,0,0]
             pt2 = [0,0,0]
             self.fiducialNode.GetNthControlPointPosition(idx1, pt1)
             self.fiducialNode.GetNthControlPointPosition(idx2, pt2)
-            lineSource = self.needleLineSources[i]
             lineSource.SetPoint1(pt1)
             lineSource.SetPoint2(pt2)
-            lineSource.Update()
-
             tubeFilter = vtk.vtkTubeFilter()
             tubeFilter.SetInputConnection(lineSource.GetOutputPort())
             tubeFilter.SetRadius(1.0)
             tubeFilter.SetNumberOfSides(20)
-            tubeFilter.Update()
-
             triangleFilter = vtk.vtkTriangleFilter()
             triangleFilter.SetInputConnection(tubeFilter.GetOutputPort())
             triangleFilter.Update()
-
             self.needleModels[i].SetAndObservePolyData(triangleFilter.GetOutput())
 
     # Q2: Automatic needle tip placement at tumor center of mass
     def autoPlaceNeedleTip(self, widget):
-        """
-        Automatically place the tip of each needle (F-1, F-3, ...) at the center of mass of the tumor mesh.
-        Also update the corresponding F-2 to keep the same direction and length.
-        """
-        tumorNode = None
         try:
             tumorNode = getNode('livertumor04')
-        except slicer.util.MRMLNodeNotFoundException:
-            slicer.util.errorDisplay("Tumor model 'livertumor04' not found in scene.")
+            polyData = tumorNode.GetPolyData()
+            centerOfMassFilter = vtk.vtkCenterOfMass()
+            centerOfMassFilter.SetInputData(polyData)
+            centerOfMassFilter.Update()
+            com = centerOfMassFilter.GetCenter()
+        except:
             return
-        polyData = tumorNode.GetPolyData()
-        if not polyData:
-            slicer.util.errorDisplay("Tumor model has no polydata.")
-            return
-        centerOfMassFilter = vtk.vtkCenterOfMass()
-        centerOfMassFilter.SetInputData(polyData)
-        centerOfMassFilter.SetUseScalarsAsWeights(False)
-        centerOfMassFilter.Update()
-        com = centerOfMassFilter.GetCenter()
-        # Move F-1, F-3, ... to center of mass and update F-2, F-4, ... accordingly
         if self.fiducialNode:
             for i in range(0, self.fiducialNode.GetNumberOfControlPoints(), 2):
                 if self.fiducialNode.GetNumberOfControlPoints() > i+1:
                     pt2 = [0,0,0]
                     self.fiducialNode.GetNthControlPointPosition(i+1, pt2)
-                    old_pt1 = [0,0,0]
-                    self.fiducialNode.GetNthControlPointPosition(i, old_pt1)
-                    direction = [pt2[j] - old_pt1[j] for j in range(3)]
+                    direction = [pt2[j] - self.fiducialNode.GetNthControlPointPosition(i, [0,0,0])[j] for j in range(3)]
                     self.fiducialNode.SetNthControlPointPosition(i, com)
                     new_pt2 = [com[j] + direction[j] for j in range(3)]
                     self.fiducialNode.SetNthControlPointPosition(i+1, new_pt2)
