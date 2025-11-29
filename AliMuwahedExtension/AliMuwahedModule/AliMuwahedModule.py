@@ -149,6 +149,12 @@ class AliMuwahedModuleLogic(ScriptedLoadableModuleLogic):
         self.needleLineSources = []  # Store line sources for each needle
         self.needleModels = []       # Store model nodes for each needle
         self.fiducialNode = None
+        # Ablation sphere data (Q6)
+        # Radius and offset are in the same units as the scene (mm)
+        self.ablationRadius = 10.0  # default ablation radius in mm (adjustable)
+        self.ablationOffsetFromTip = 5.0  # center placed 5mm from the tip
+        self.ablationSphereSources = []  # vtkSphereSource for each needle
+        self.ablationModels = []  # corresponding model nodes
 
     # Q1: Needle creation and interaction
     def createNeedles(self, widget):
@@ -188,6 +194,27 @@ class AliMuwahedModuleLogic(ScriptedLoadableModuleLogic):
         modelNode.GetDisplayNode().SetRepresentation(1)
         self.needleLineSources.append(lineSource)
         self.needleModels.append(modelNode)
+        # Create corresponding ablation sphere (Q6)
+        sphereSource = vtk.vtkSphereSource()
+        # compute initial center: 5mm from the internal tip (pt1) towards pt2
+        direction = [pt2[j] - pt1[j] for j in range(3)]
+        length = sum([direction[j]*direction[j] for j in range(3)]) ** 0.5
+        if length > 0.0:
+            center = [pt1[j] + (direction[j]/length)*self.ablationOffsetFromTip for j in range(3)]
+        else:
+            center = list(pt1)
+        sphereSource.SetCenter(center)
+        sphereSource.SetRadius(self.ablationRadius)
+        sphereSource.SetThetaResolution(24)
+        sphereSource.SetPhiResolution(24)
+        sphereSource.Update()
+        sphereModel = slicer.modules.models.logic().AddModel(sphereSource.GetOutput())
+        sphereModel.SetName(f"Ablation-{len(self.ablationSphereSources)+1}")
+        # semi-transparent reddish color for ablation
+        sphereModel.GetDisplayNode().SetColor(1.0, 0.4, 0.4)
+        sphereModel.GetDisplayNode().SetOpacity(0.35)
+        self.ablationSphereSources.append(sphereSource)
+        self.ablationModels.append(sphereModel)
         # Observers for live update
         fiducialNode.AddObserver(vtk.vtkCommand.ModifiedEvent, lambda caller, event: self.onFiducialMoved(caller, event, widget))
         fiducialNode.AddObserver(slicer.vtkMRMLMarkupsNode.PointModifiedEvent, lambda caller, event: self.onFiducialMoved(caller, event, widget))
@@ -221,6 +248,23 @@ class AliMuwahedModuleLogic(ScriptedLoadableModuleLogic):
             triangleFilter.SetInputConnection(tubeFilter.GetOutputPort())
             triangleFilter.Update()
             self.needleModels[i].SetAndObservePolyData(triangleFilter.GetOutput())
+            # Update corresponding ablation sphere position (Q6)
+            try:
+                sphereSource = self.ablationSphereSources[i]
+                # compute center 5mm from internal tip (pt1) towards pt2
+                direction = [pt2[j] - pt1[j] for j in range(3)]
+                length = sum([direction[j]*direction[j] for j in range(3)]) ** 0.5
+                if length > 0.0:
+                    center = [pt1[j] + (direction[j]/length)*self.ablationOffsetFromTip for j in range(3)]
+                else:
+                    center = list(pt1)
+                sphereSource.SetCenter(center)
+                sphereSource.SetRadius(self.ablationRadius)
+                sphereSource.Update()
+                self.ablationModels[i].SetAndObservePolyData(sphereSource.GetOutput())
+            except Exception:
+                # no sphere for this needle yet
+                pass
 
     # Q2: Automatic needle tip placement at tumor center of mass
     def autoPlaceNeedleTip(self, widget):
