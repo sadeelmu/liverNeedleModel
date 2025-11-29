@@ -156,8 +156,6 @@ class AliMuwahedModuleLogic(ScriptedLoadableModuleLogic):
             fiducialNode = slicer.modules.markups.logic().AddNewFiducialNode()
             fiducialNode = getNode(fiducialNode)
             fiducialNode.SetName('F')
-        self.fiducialNode = fiducialNode
-
         # Increase glyph size for visibility
         fiducialNode.GetDisplayNode().SetGlyphScale(3.0)
 
@@ -200,13 +198,12 @@ class AliMuwahedModuleLogic(ScriptedLoadableModuleLogic):
         # Observe fiducial movement to update all needles and distances automatically
         fiducialNode.AddObserver(vtk.vtkCommand.ModifiedEvent, self.onFiducialMoved)
         fiducialNode.AddObserver(vtk.vtkCommand.PointModifiedEvent, self.onFiducialMoved)
+        self.fiducialNode = fiducialNode
 
     def onFiducialMoved(self, caller, event):
-        # Automatically update distances when any fiducial is moved
-        # Only update if a 'free' point (F-2, F-4, ...) is moved
-        numPoints = caller.GetNumberOfControlPoints()
-        # Check which points are moved (for simplicity, update for any move)
-        # You can optimize to only update for even indices if needed
+        # Update all needle geometries interactively when any fiducial point is moved
+        self.updateAllNeedlesFromFiducials(caller, event)
+        # Automatically update distances in the UI
         self.computeNeedleVesselDistances(self.widget)
 
     def updateAllNeedlesFromFiducials(self, caller, event):
@@ -246,6 +243,7 @@ class AliMuwahedModuleLogic(ScriptedLoadableModuleLogic):
     def autoPlaceNeedleTip(self):
         """
         Automatically place the tip of each needle (F-1, F-3, ...) at the center of mass of the tumor mesh.
+        Also update the corresponding F-2 to keep the same direction and length.
         """
         tumorNode = None
         try:
@@ -262,10 +260,25 @@ class AliMuwahedModuleLogic(ScriptedLoadableModuleLogic):
         centerOfMassFilter.SetUseScalarsAsWeights(False)
         centerOfMassFilter.Update()
         com = centerOfMassFilter.GetCenter()
-        # Move F-1, F-3, ... to center of mass
+        # Move F-1, F-3, ... to center of mass and update F-2, F-4, ... accordingly
         if self.fiducialNode:
             for i in range(0, self.fiducialNode.GetNumberOfControlPoints(), 2):
-                self.fiducialNode.SetNthControlPointPosition(i, com)
+                # Get old F-2 position and direction
+                if self.fiducialNode.GetNumberOfControlPoints() > i+1:
+                    pt2 = [0,0,0]
+                    self.fiducialNode.GetNthControlPointPosition(i+1, pt2)
+                    # Compute direction from old F-1 to F-2
+                    old_pt1 = [0,0,0]
+                    self.fiducialNode.GetNthControlPointPosition(i, old_pt1)
+                    direction = [pt2[j] - old_pt1[j] for j in range(3)]
+                    # Set new F-1
+                    self.fiducialNode.SetNthControlPointPosition(i, com)
+                    # Set new F-2 to keep same direction and length
+                    new_pt2 = [com[j] + direction[j] for j in range(3)]
+                    self.fiducialNode.SetNthControlPointPosition(i+1, new_pt2)
+        # Update needles and distances
+        self.updateAllNeedlesFromFiducials(self.fiducialNode, None)
+        self.computeNeedleVesselDistances(self.widget)
 
     def printPosF1(self, caller=None, event=None): 
         try:
