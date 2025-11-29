@@ -101,7 +101,7 @@ class AliMuwahedModuleWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
     # Create Needles button callback function
     def onCreateNeedlesButtonClicked(self):
         # Q1: Add new needle (pair of fiducials and cylinder)
-        self.logic.createNeedles()
+        self.logic.createNeedles(self)
 
     # Automatic Needle Placement button
     def onAutoPlaceButtonClicked(self):
@@ -143,7 +143,7 @@ class AliMuwahedModuleLogic(ScriptedLoadableModuleLogic):
         self.fiducialNode = None
 
     # Q1: Needle creation and interaction
-    def createNeedles(self):
+    def createNeedles(self, widget):
         # Get or create fiducial node
         try:
             fiducialNode = getNode('F')
@@ -178,14 +178,14 @@ class AliMuwahedModuleLogic(ScriptedLoadableModuleLogic):
         modelNode.GetDisplayNode().SetRepresentation(1)
         self.needleLineSources.append(lineSource)
         self.needleModels.append(modelNode)
-        fiducialNode.AddObserver(vtk.vtkCommand.ModifiedEvent, self.onFiducialMoved)
+        # Pass widget to observer using lambda for live update
+        fiducialNode.AddObserver(vtk.vtkCommand.ModifiedEvent, lambda caller, event: self.onFiducialMoved(caller, event, widget))
 
-    def onFiducialMoved(self, caller, event):
+    def onFiducialMoved(self, caller, event, widget):
         # Update all needle geometries interactively when any fiducial point is moved
         self.updateAllNeedlesFromFiducials(caller, event)
         # Automatically update distances in the UI
-        # The widget should be passed in from the widget class, not fetched here
-        # If you want auto-update, you can store a reference to the widget when needed
+        self.computeNeedleVesselDistances(widget)
 
     def updateAllNeedlesFromFiducials(self, caller, event):
         if not self.fiducialNode:
