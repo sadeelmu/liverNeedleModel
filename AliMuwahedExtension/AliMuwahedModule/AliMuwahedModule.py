@@ -40,14 +40,6 @@ class AliMuwahedModule(ScriptedLoadableModule):
 #
 
 class AliMuwahedModuleWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
-            # Automatic Needle Placement button
-            autoPlaceButton = qt.QPushButton("Auto Place Needle Tip")
-            autoPlaceButton.toolTip = "Automatically place needle tip (F-1) at tumor center of mass."
-            self.layout.addWidget(autoPlaceButton)
-            autoPlaceButton.connect('clicked(bool)', self.onAutoPlaceButtonClicked)
-
-        def onAutoPlaceButtonClicked(self):
-            self.logic.autoPlaceNeedleTip()
     """Uses ScriptedLoadableModuleWidget base class, available at:
     https://github.com/Slicer/Slicer/blob/master/Base/Python/slicer/ScriptedLoadableModule.py
     """
@@ -60,7 +52,6 @@ class AliMuwahedModuleWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         VTKObservationMixin.__init__(self)  # needed for parameter node observation
         # store logic in a member variable
         self.logic = AliMuwahedModuleLogic()
-
 
     def setup(self):
         """
@@ -80,16 +71,25 @@ class AliMuwahedModuleWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         self.layout.addWidget(PrintPosButton)
         PrintPosButton.connect('clicked(bool)', self.onPrintPosButtonButtonClicked)
 
-        # Create Needles button: Automatically creates fiducials and a cylinder (needle) between them
+        # Create Needles button: Adds a new needle (pair of fiducials and cylinder) each time
         createNeedlesButton = qt.QPushButton("Create Needles")
-        createNeedlesButton.toolTip = "Automatically create fiducials and cylinders (needles) between control points."
+        createNeedlesButton.toolTip = "Add a new pair of fiducials and cylinder (needle) each time you press."
         self.layout.addWidget(createNeedlesButton)
         createNeedlesButton.connect('clicked(bool)', self.onCreateNeedlesButtonClicked)
 
+        # Automatic Needle Placement button
+        autoPlaceButton = qt.QPushButton("Auto Place Needle Tip")
+        autoPlaceButton.toolTip = "Automatically place needle tip (F-1, F-3, ...) at tumor center of mass."
+        self.layout.addWidget(autoPlaceButton)
+        autoPlaceButton.connect('clicked(bool)', self.onAutoPlaceButtonClicked)
 
     # Create Needles button callback function
     def onCreateNeedlesButtonClicked(self):
         self.logic.createNeedles()
+
+    # Automatic Needle Placement button
+    def onAutoPlaceButtonClicked(self):
+        self.logic.autoPlaceNeedleTip()
 
     # HelloWorld button callback function
     def onHelloWorldButtonClicked(self):
@@ -109,53 +109,14 @@ class AliMuwahedModuleWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
 #
 
 class AliMuwahedModuleLogic(ScriptedLoadableModuleLogic):
-        # Q2: Automatic needle tip placement at tumor center of mass
-        # This function finds the tumor mesh, computes its center of mass, and moves F-1 there
-        def autoPlaceNeedleTip(self):
-            """
-            Automatically place the first fiducial (F-1) at the center of mass of the tumor mesh.
-            """
-            # Q2: Find tumor model node (by name, e.g., 'livertumor04')
-            tumorNode = None
-            try:
-                tumorNode = getNode('livertumor04')
-            except slicer.util.MRMLNodeNotFoundException:
-                # Q2: Error if tumor not found
-                slicer.util.errorDisplay("Tumor model 'livertumor04' not found in scene.")
-                return
-            polyData = tumorNode.GetPolyData()
-            if not polyData:
-                # Q2: Error if tumor has no polydata
-                slicer.util.errorDisplay("Tumor model has no polydata.")
-                return
-            # Q2: Compute center of mass
-            centerOfMassFilter = vtk.vtkCenterOfMass()
-            centerOfMassFilter.SetInputData(polyData)
-            centerOfMassFilter.SetUseScalarsAsWeights(False)
-            centerOfMassFilter.Update()
-            com = centerOfMassFilter.GetCenter()
-            # Q2: Move F-1 to center of mass
-            if self.fiducialNode and self.fiducialNode.GetNumberOfControlPoints() > 0:
-                self.fiducialNode.SetNthControlPointPosition(0, com)
-    """This class should implement all the actual
-    computation done by your module.  The interface
-    should be such that other python code can import
-    this class and make use of the functionality without
-    requiring an instance of the Widget.
-    Uses ScriptedLoadableModuleLogic base class, available at:
-    https://github.com/Slicer/Slicer/blob/master/Base/Python/slicer/ScriptedLoadableModule.py
-    """
-
+    """Implements all computation for the module."""
     def __init__(self):
-        """
-        Called when the logic class is instantiated. Can be used for initializing member variables.
-        """
         ScriptedLoadableModuleLogic.__init__(self)
         self.needleLineSources = []  # Store line sources for each needle
         self.needleModels = []       # Store model nodes for each needle
         self.fiducialNode = None
 
-    def createNeedles(self, numNeedles=1):
+    def createNeedles(self):
         """
         Add a new needle (cylinder) between a new pair of fiducial points each time the button is pressed.
         Does not remove previous needles or fiducials.
@@ -246,18 +207,38 @@ class AliMuwahedModuleLogic(ScriptedLoadableModuleLogic):
 
             self.needleModels[i].SetAndObservePolyData(triangleFilter.GetOutput())
 
+    def autoPlaceNeedleTip(self):
+        """
+        Automatically place the tip of each needle (F-1, F-3, ...) at the center of mass of the tumor mesh.
+        """
+        tumorNode = None
+        try:
+            tumorNode = getNode('livertumor04')
+        except slicer.util.MRMLNodeNotFoundException:
+            slicer.util.errorDisplay("Tumor model 'livertumor04' not found in scene.")
+            return
+        polyData = tumorNode.GetPolyData()
+        if not polyData:
+            slicer.util.errorDisplay("Tumor model has no polydata.")
+            return
+        centerOfMassFilter = vtk.vtkCenterOfMass()
+        centerOfMassFilter.SetInputData(polyData)
+        centerOfMassFilter.SetUseScalarsAsWeights(False)
+        centerOfMassFilter.Update()
+        com = centerOfMassFilter.GetCenter()
+        # Move F-1, F-3, ... to center of mass
+        if self.fiducialNode:
+            for i in range(0, self.fiducialNode.GetNumberOfControlPoints(), 2):
+                self.fiducialNode.SetNthControlPointPosition(i, com)
+
     def process(self):
         return "Hello world!"
 
     def printPosF1(self, caller=None, event=None): 
-        # gets node that contains all fiducials (usually called "F")
         try:
             f = getNode('F')
-            # initilize a position
             pos=[0,0,0]
-            # get the first fiducial's position in pos (fiducial of index=0)
             f.GetNthControlPointPosition(0,pos)
-            # print the position coordinates in the python console
             print(pos)
         except slicer.util.MRMLNodeNotFoundException:
             print("Please create a fiducial first")
