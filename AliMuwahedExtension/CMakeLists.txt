@@ -6,8 +6,8 @@ project(AliMuwahedExtension)
 # Extension meta-information
 set(EXTENSION_HOMEPAGE "https://www.slicer.org/wiki/Documentation/Nightly/Extensions/AliMuwahedExtension")
 set(EXTENSION_CATEGORY "Examples")
-set(EXTENSION_CONTRIBUTORS "Caroline Essert (Univ. Strasbourg), Kinan Ali (HealthTech), and Sadel Muwahed(HealthTech)")
-set(EXTENSION_DESCRIPTION "This extension was created by Kinan Ali and Sadel Muwahed")
+set(EXTENSION_CONTRIBUTORS "Caroline Essert (Univ. Strasbourg)")
+set(EXTENSION_DESCRIPTION "Hello this is my Nice Extension")
 set(EXTENSION_ICONURL "http://www.example.com/Slicer/Extensions/AliMuwahedExtension.png")
 set(EXTENSION_SCREENSHOTURLS "http://www.example.com/Slicer/Extensions/AliMuwahedExtension/Screenshots/1.png")
 set(EXTENSION_DEPENDS "NA") # Specified as a list or "NA" if no dependencies
@@ -19,7 +19,7 @@ include(${Slicer_USE_FILE})
 
 #-----------------------------------------------------------------------------
 # Extension modules
-add_subdirectory(AnotherModule)
+add_subdirectory(AliMuwahedModule)
 ## NEXT_MODULE
 
 #-----------------------------------------------------------------------------

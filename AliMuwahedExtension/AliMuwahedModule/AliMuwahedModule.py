@@ -9,10 +9,9 @@ from slicer.util import *
 
 #%%
 #
-# AliMuwahed
+# AliMuwahedModule
 #
 
-#AliMuwahedModule: Metadata for the module.
 class AliMuwahedModule(ScriptedLoadableModule):
     """Uses ScriptedLoadableModule base class, available at:
     https://github.com/Slicer/Slicer/blob/master/Base/Python/slicer/ScriptedLoadableModule.py
@@ -20,14 +19,14 @@ class AliMuwahedModule(ScriptedLoadableModule):
 
     def __init__(self, parent):
         ScriptedLoadableModule.__init__(self, parent)
-        self.parent.title = "AliMuwahed"  # TODO: make this more human readable by adding spaces
+        self.parent.title = "AliMuwahedModule"  # TODO: make this more human readable by adding spaces
         self.parent.categories = ["Examples"]  # TODO: set categories (folders where the module shows up in the module selector)
         self.parent.dependencies = []  # TODO: add here list of module names that this module requires
         self.parent.contributors = ["Caroline Essert (University of Strasbourg)"]  # TODO: replace with "Firstname Lastname (Organization)"
         # TODO: update with short description of the module and a link to online module documentation
         self.parent.helpText = """
             This is an example of scripted loadable module bundled in an extension.
-            See more information in <a href="https://github.com/organization/projectname#AliMuwahed">module documentation</a>.
+            See more information in <a href="https://github.com/organization/projectname#AliMuwahedModule">module documentation</a>.
             """
         # TODO: replace with organization, grant and thanks
         self.parent.acknowledgementText = """
@@ -37,11 +36,10 @@ class AliMuwahedModule(ScriptedLoadableModule):
 
 #%%
 #
-# AliMuwahedWidget
+# AliMuwahedModuleWidget
 #
 
-#AliMuwahedWidget: Sets up the UI.
-class AliMuwahedWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
+class AliMuwahedModuleWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
     """Uses ScriptedLoadableModuleWidget base class, available at:
     https://github.com/Slicer/Slicer/blob/master/Base/Python/slicer/ScriptedLoadableModule.py
     """
@@ -53,7 +51,7 @@ class AliMuwahedWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         ScriptedLoadableModuleWidget.__init__(self, parent)
         VTKObservationMixin.__init__(self)  # needed for parameter node observation
         # store logic in a member variable
-        self.logic = AliMuwahedLogic()
+        self.logic = AliMuwahedModuleLogic()
 
 
     def setup(self):
@@ -62,8 +60,7 @@ class AliMuwahedWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         """
         # initialisation that needs to be here - don't remove
         ScriptedLoadableModuleWidget.setup(self)
-        testLabel = qt.QLabel("Test label")
-        self.layout.addWidget(testLabel)
+
         # HelloWorld button
         helloWorldButton = qt.QPushButton("Hello world")
         helloWorldButton.toolTip = "Print 'Hello world' in standard window"
@@ -74,15 +71,6 @@ class AliMuwahedWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         PrintPosButton = qt.QPushButton("Print pos")
         self.layout.addWidget(PrintPosButton)
         PrintPosButton.connect('clicked(bool)', self.onPrintPosButtonButtonClicked)
-
-        # Create Needles button: Automatically creates fiducials and a cylinder (needle) between them
-        createNeedlesButton = qt.QPushButton("Create Needles")
-        createNeedlesButton.toolTip = "Automatically create fiducials and cylinders (needles) between control points."
-        self.layout.addWidget(createNeedlesButton)
-        createNeedlesButton.connect('clicked(bool)', self.onCreateNeedlesButtonClicked)
-
-    def onCreateNeedlesButtonClicked(self):
-        self.logic.createNeedles()
 
 
     # HelloWorld button callback function
@@ -99,11 +87,10 @@ class AliMuwahedWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
 
 #%%
 #
-# AliMuwahedLogic
+# AliMuwahedModuleLogic
 #
 
-#AliMuwahedLogic: Implements the actual computation.
-class AliMuwahedLogic(ScriptedLoadableModuleLogic):
+class AliMuwahedModuleLogic(ScriptedLoadableModuleLogic):
     """This class should implement all the actual
     computation done by your module.  The interface
     should be such that other python code can import
@@ -118,108 +105,6 @@ class AliMuwahedLogic(ScriptedLoadableModuleLogic):
         Called when the logic class is instantiated. Can be used for initializing member variables.
         """
         ScriptedLoadableModuleLogic.__init__(self)
-        self.needleLineSources = []  # Store line sources for each needle
-        self.needleModels = []       # Store model nodes for each needle
-        self.fiducialNode = None
-    def createNeedles(self, numNeedles=1):
-        """
-        Create needles (cylinders) between pairs of automatically generated fiducial points.
-        - Removes previous needles and fiducials.
-        - Creates two fiducials (F-1, F-2) for one needle.
-        - Builds a cylinder using vtkLineSource, vtkTubeFilter, and vtkTriangleFilter.
-        - Adds the cylinder to the scene in wireframe mode.
-        - Increases glyph size for fiducials for better visualization.
-        - Observes fiducial movement to update the needle geometry interactively.
-        """
-        # Remove previous needles and fiducials if any
-        for modelNode in self.needleModels:
-            slicer.mrmlScene.RemoveNode(modelNode)
-        self.needleLineSources = []
-        self.needleModels = []
-
-        # Create or get fiducial node
-        fiducialNode = None
-        try:
-            fiducialNode = getNode('F')
-        except slicer.util.MRMLNodeNotFoundException:
-            fiducialNode = slicer.modules.markups.logic().AddNewFiducialNode()
-            fiducialNode = getNode(fiducialNode)
-            fiducialNode.SetName('F')
-        self.fiducialNode = fiducialNode
-
-        # Increase glyph size for visibility
-        fiducialNode.GetDisplayNode().SetGlyphScale(3.0)
-
-        # Create two fiducials for one needle (can be extended for more needles)
-        points = [
-            [0, 0, 0],           # F-1
-            [0, 0, 150]          # F-2, 15cm along Z
-        ]
-        fiducialNode.RemoveAllControlPoints()
-        for i, pt in enumerate(points):
-            fiducialNode.AddFiducial(*pt)
-            fiducialNode.SetNthFiducialLabel(i, f"F-{i+1}")
-
-        # VTK pipeline: LineSource -> TubeFilter -> TriangleFilter
-        lineSource = vtk.vtkLineSource()
-        lineSource.SetPoint1(points[0])
-        lineSource.SetPoint2(points[1])
-        lineSource.Update()
-
-        tubeFilter = vtk.vtkTubeFilter()
-        tubeFilter.SetInputConnection(lineSource.GetOutputPort())
-        tubeFilter.SetRadius(1.0)  # 1mm radius
-        tubeFilter.SetNumberOfSides(20)
-        tubeFilter.Update()
-
-        triangleFilter = vtk.vtkTriangleFilter()
-        triangleFilter.SetInputConnection(tubeFilter.GetOutputPort())
-        triangleFilter.Update()
-
-        # Add cylinder (needle) to scene
-        modelNode = slicer.modules.models.logic().AddModel(triangleFilter.GetOutput())
-        modelNode.SetName("Needle-1")
-        modelNode.GetDisplayNode().SetColor(1,1,0)  # Yellow
-        modelNode.GetDisplayNode().SetEdgeVisibility(True)
-        modelNode.GetDisplayNode().SetRepresentation(1)  # Wireframe
-
-        self.needleLineSources.append(lineSource)
-        self.needleModels.append(modelNode)
-
-        # Observe fiducial movement to update needle geometry
-        fiducialNode.AddObserver(vtk.vtkCommand.ModifiedEvent, self.updateNeedleFromFiducials)
-
-    def updateNeedleFromFiducials(self, caller, event):
-        """
-        Update the needle geometry interactively when fiducial points are moved.
-        - Reads the positions of F-1 and F-2.
-        - Updates the vtkLineSource, vtkTubeFilter, and vtkTriangleFilter.
-        - Updates the cylinder (needle) model in the scene.
-        """
-        if not self.fiducialNode or not self.needleLineSources:
-            return
-        if self.fiducialNode.GetNumberOfControlPoints() < 2:
-            return
-        pt1 = [0,0,0]
-        pt2 = [0,0,0]
-        self.fiducialNode.GetNthControlPointPosition(0, pt1)
-        self.fiducialNode.GetNthControlPointPosition(1, pt2)
-        lineSource = self.needleLineSources[0]
-        lineSource.SetPoint1(pt1)
-        lineSource.SetPoint2(pt2)
-        lineSource.Update()
-
-        tubeFilter = vtk.vtkTubeFilter()
-        tubeFilter.SetInputConnection(lineSource.GetOutputPort())
-        tubeFilter.SetRadius(1.0)
-        tubeFilter.SetNumberOfSides(20)
-        tubeFilter.Update()
-
-        triangleFilter = vtk.vtkTriangleFilter()
-        triangleFilter.SetInputConnection(tubeFilter.GetOutputPort())
-        triangleFilter.Update()
-
-        self.needleModels[0].SetAndObservePolyData(triangleFilter.GetOutput())
 
     def process(self):
         return "Hello world!"
@@ -240,11 +125,10 @@ class AliMuwahedLogic(ScriptedLoadableModuleLogic):
 
 #%%
 #
-# AliMuwahedTest
+# AliMuwahedModuleTest
 #
 
-#AliMuwahedTest: Basic test setup, adds a fiducial and tests the print position function.
-class AliMuwahedTest(ScriptedLoadableModuleTest):
+class AliMuwahedModuleTest(ScriptedLoadableModuleTest):
     """
     This is the test case for your scripted module.
     Uses ScriptedLoadableModuleTest base class, available at:
@@ -262,9 +146,9 @@ class AliMuwahedTest(ScriptedLoadableModuleTest):
         """Run as few or as many tests as needed here.
         """
         self.setUp()
-        self.test_AliMuwahed1()
+        self.test_AliMuwahedModule1()
 
-    def test_AliMuwahed1(self):
+    def test_AliMuwahedModule1(self):
         """ Ideally you should have several levels of tests.  At the lowest level
         tests should exercise the functionality of the logic with different inputs
         (both valid and invalid).  At higher levels your tests should emulate the
@@ -287,7 +171,7 @@ class AliMuwahedTest(ScriptedLoadableModuleTest):
         markupsNode.AddFiducial(6.4, 35.1, 0.7)
 
         # get the logic
-        logic = AliMuwahedLogic()
+        logic = AliMuwahedModuleLogic()
         # call function printPosF1 to test it on the previously added fiducial
         logic.printPosF1()
 

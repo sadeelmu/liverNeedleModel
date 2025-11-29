@@ -1,19 +1,19 @@
 #-----------------------------------------------------------------------------
-set(MODULE_NAME AnotherModule)
+set(MODULE_NAME AliMuwahedModule)
 
 #-----------------------------------------------------------------------------
 set(MODULE_PYTHON_SCRIPTS
-  ${MODULE_NAME}.py
+  ${AliMuwahedModule}.py
   )
 
 set(MODULE_PYTHON_RESOURCES
-  Resources/Icons/${MODULE_NAME}.png
-  Resources/UI/${MODULE_NAME}.ui
+  Resources/Icons/${AliMuwahedModule}.png
+  Resources/UI/${AliMuwahedModule}.ui
   )
 
 #-----------------------------------------------------------------------------
 slicerMacroBuildScriptedModule(
-  NAME ${MODULE_NAME}
+  NAME ${AliMuwahedModule}
   SCRIPTS ${MODULE_PYTHON_SCRIPTS}
   RESOURCES ${MODULE_PYTHON_RESOURCES}
   WITH_GENERIC_TESTS
@@ -24,7 +24,7 @@ if(BUILD_TESTING)
 
   # Register the unittest subclass in the main script as a ctest.
   # Note that the test will also be available at runtime.
-  slicer_add_python_unittest(SCRIPT ${MODULE_NAME}.py)
+  slicer_add_python_unittest(SCRIPT ${AliMuwahedModule}.py)
 
   # Additional build-time testing
   add_subdirectory(Testing)
