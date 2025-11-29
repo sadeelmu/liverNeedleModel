@@ -249,11 +249,11 @@ class AliMuwahedModuleLogic(ScriptedLoadableModuleLogic):
             triangleFilter.Update()
             self.needleModels[i].SetAndObservePolyData(triangleFilter.GetOutput())
             # Update corresponding ablation sphere position (Q6)
-            try:
+            if i < len(self.ablationSphereSources):
                 sphereSource = self.ablationSphereSources[i]
                 # compute center 5mm from internal tip (pt1) towards pt2
                 direction = [pt2[j] - pt1[j] for j in range(3)]
-                length = sum([direction[j]*direction[j] for j in range(3)]) ** 0.5
+                length = (direction[0]*direction[0] + direction[1]*direction[1] + direction[2]*direction[2]) ** 0.5
                 if length > 0.0:
                     center = [pt1[j] + (direction[j]/length)*self.ablationOffsetFromTip for j in range(3)]
                 else:
@@ -262,9 +262,6 @@ class AliMuwahedModuleLogic(ScriptedLoadableModuleLogic):
                 sphereSource.SetRadius(self.ablationRadius)
                 sphereSource.Update()
                 self.ablationModels[i].SetAndObservePolyData(sphereSource.GetOutput())
-            except Exception:
-                # no sphere for this needle yet
-                pass
 
     # Q2: Automatic needle tip placement at tumor center of mass
     def autoPlaceNeedleTip(self, widget):
