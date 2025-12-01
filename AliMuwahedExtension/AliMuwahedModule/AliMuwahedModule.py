@@ -167,102 +167,9 @@ class AliMuwahedModuleLogic(ScriptedLoadableModuleLogic):
         self.ablationSpheres = []    # Store ablation sphere model nodes for each needle
         self.fiducialNode = None
 
-    # --- Mesh/Labelmap helpers (Q7) ---
-    def modelNodeToLabelmap(self, modelNode, referenceVolumeNode=None, spacing=1.0, labelValue=1):
-        """
-        Converts a model node (tumor or ablation sphere) to a binary labelmap (vtkImageData).
-        If referenceVolumeNode is provided, uses its geometry (origin, spacing, extent); otherwise, creates a new image covering the model bounds.
-        Spacing is in mm.
-        Returns vtkMRMLLabelMapVolumeNode (binary: 1 inside, 0 outside).
-        """
-        polyData = modelNode.GetPolyData()
-        if polyData is None:
-            print(f"Model {modelNode.GetName()} has no polyData")
-            return None
-        bounds = [0]*6
-        polyData.GetBounds(bounds)
-        print(f"Model {modelNode.GetName()} bounds: {bounds}")
-        print(f"Model {modelNode.GetName()} points: {polyData.GetNumberOfPoints()}, polys: {polyData.GetNumberOfPolys()}")
-        if polyData.GetNumberOfPoints() == 0 or polyData.GetNumberOfPolys() == 0:
-            print(f"Model {modelNode.GetName()} is empty (no points or polys)")
-            return None
-        # Check if mesh is closed (watertight)
-        featureEdges = vtk.vtkFeatureEdges()
-        featureEdges.SetInputData(polyData)
-        featureEdges.BoundaryEdgesOn()
-        featureEdges.FeatureEdgesOff()
-        featureEdges.ManifoldEdgesOff()
-        featureEdges.NonManifoldEdgesOff()
-        featureEdges.Update()
-        nBoundaryEdges = featureEdges.GetOutput().GetNumberOfCells()
-        print(f"Model {modelNode.GetName()} boundary edges: {nBoundaryEdges} (should be 0 for closed mesh)")
-        # Get reference labelmap geometry or create from mesh bounds
-        if referenceVolumeNode is not None:
-            refImage = referenceVolumeNode.GetImageData()
-            if refImage is None:
-                print(f"Reference labelmap {referenceVolumeNode.GetName()} has no image data")
-                return None
-            image = vtk.vtkImageData()
-            image.DeepCopy(refImage)
-            image.GetPointData().GetScalars().Fill(0)
-        else:
-            minX, maxX, minY, maxY, minZ, maxZ = bounds
-            dimX = int((maxX - minX) / spacing) + 1
-            dimY = int((maxY - minY) / spacing) + 1
-            dimZ = int((maxZ - minZ) / spacing) + 1
-            image = vtk.vtkImageData()
-            image.SetSpacing(spacing, spacing, spacing)
-            image.SetOrigin(minX, minY, minZ)
-            image.SetDimensions(dimX, dimY, dimZ)
-            image.AllocateScalars(vtk.VTK_UNSIGNED_CHAR, 1)
-            image.GetPointData().GetScalars().Fill(0)
-        # Convert mesh to stencil
-        stencil = vtk.vtkPolyDataToImageStencil()
-        stencil.SetInputData(polyData)
-        stencil.SetOutputOrigin(image.GetOrigin())
-        stencil.SetOutputSpacing(image.GetSpacing())
-        stencil.SetOutputWholeExtent(image.GetExtent())
-        stencil.Update()
-        # Apply stencil to image
-        imgStencil = vtk.vtkImageStencil()
-        imgStencil.SetInputData(image)
-        imgStencil.SetStencilData(stencil.GetOutput())
-        imgStencil.ReverseStencilOff()
-        imgStencil.SetBackgroundValue(0)
-        imgStencil.Update()
-        print(f"Setting label value: {labelValue}")
-        outImage = imgStencil.GetOutput()
-        arr = outImage.GetPointData().GetScalars()
-        nVoxels = arr.GetNumberOfTuples()
-        nInside = sum([arr.GetTuple1(i) > 0 for i in range(nVoxels)])
-        print(f"Labelmap for {modelNode.GetName()}: {nInside} voxels set to 1 out of {nVoxels}")
-        labelmapNode = slicer.mrmlScene.AddNewNodeByClass('vtkMRMLLabelMapVolumeNode', modelNode.GetName() + '-labelmap')
-        labelmapNode.SetAndObserveImageData(outImage)
-        labelmapNode.SetOrigin(image.GetOrigin())
-        labelmapNode.SetSpacing(image.GetSpacing())
-        # Removed: labelmapNode.SetExtent(image.GetExtent())
-        return labelmapNode
-
-    def countVoxelsInLabelmap(self, labelmap, labelValue=1):
-        """
-        Counts the number of voxels in a vtkMRMLLabelMapVolumeNode that have the given labelValue (default 1).
-        Returns the count and the volume in mm^3 (count * voxel volume).
-        """
-        arr = labelmap.GetImageData().GetPointData().GetScalars()
-        count = 0
-        for i in range(arr.GetNumberOfTuples()):
-            if arr.GetValue(i) == labelValue:
-                count += 1
-        spacing = labelmap.GetSpacing()
-        voxelVolume = spacing[0] * spacing[1] * spacing[2]
-        totalVolume = count * voxelVolume
-        return count, totalVolume
-
-    # --- Geometry/Update logic ---
+    # --- Geometry/Update logic (Q1, Q2, Q4, Q6) ---
     def createNeedles(self, widget):
         # Q1: Needle creation and interaction
-        # Creates or gets the fiducial node, adds a pair of control points (needle endpoints), and builds the VTK pipeline for the cylinder.
-        # Observers are added for both ModifiedEvent and PointModifiedEvent to enable live updates.
         try:
             fiducialNode = getNode('F')
         except slicer.util.MRMLNodeNotFoundException:
@@ -278,6 +185,7 @@ class AliMuwahedModuleLogic(ScriptedLoadableModuleLogic):
         fiducialNode.SetNthControlPointLabel(n, f"F-{n+1}")
         fiducialNode.AddControlPoint(vtk.vtkVector3d(*pt2))
         fiducialNode.SetNthControlPointLabel(n+1, f"F-{n+2}")
+        
         # VTK pipeline: LineSource -> TubeFilter -> TriangleFilter
         lineSource = vtk.vtkLineSource()
         lineSource.SetPoint1(pt1)
@@ -289,6 +197,7 @@ class AliMuwahedModuleLogic(ScriptedLoadableModuleLogic):
         triangleFilter = vtk.vtkTriangleFilter()
         triangleFilter.SetInputConnection(tubeFilter.GetOutputPort())
         triangleFilter.Update()
+        
         modelNode = slicer.modules.models.logic().AddModel(triangleFilter.GetOutput())
         modelNode.SetName(f"Needle-{len(self.needleLineSources)+1}")
         modelNode.GetDisplayNode().SetColor(1,1,0)
@@ -296,8 +205,9 @@ class AliMuwahedModuleLogic(ScriptedLoadableModuleLogic):
         modelNode.GetDisplayNode().SetRepresentation(1)
         self.needleLineSources.append(lineSource)
         self.needleModels.append(modelNode)
+        
         # Q6: Create ablation sphere at 5mm from internal tip
-        ablationRadius = 10.0  # 10mm diameter (example, adjust as needed)
+        ablationRadius = 10.0
         direction = [pt2[j] - pt1[j] for j in range(3)]
         length = sum([d**2 for d in direction]) ** 0.5
         if length == 0:
@@ -305,17 +215,20 @@ class AliMuwahedModuleLogic(ScriptedLoadableModuleLogic):
         else:
             offset = [direction[j]/length*5.0 for j in range(3)]
         sphereCenter = [pt1[j] + offset[j] for j in range(3)]
+        
         sphereSource = vtk.vtkSphereSource()
         sphereSource.SetCenter(*sphereCenter)
         sphereSource.SetRadius(ablationRadius/2.0)
         sphereSource.SetThetaResolution(32)
         sphereSource.SetPhiResolution(32)
         sphereSource.Update()
+        
         sphereModelNode = slicer.modules.models.logic().AddModel(sphereSource.GetOutput())
         sphereModelNode.SetName(f"Ablation-{len(self.ablationSpheres)+1}")
         sphereModelNode.GetDisplayNode().SetColor(1,0,0)  # Red
         sphereModelNode.GetDisplayNode().SetOpacity(0.3)
         self.ablationSpheres.append(sphereModelNode)
+        
         fiducialNode.AddObserver(vtk.vtkCommand.ModifiedEvent, lambda caller, event: self.onFiducialMoved(caller, event, widget))
         fiducialNode.AddObserver(slicer.vtkMRMLMarkupsNode.PointModifiedEvent, lambda caller, event: self.onFiducialMoved(caller, event, widget))
 
@@ -341,6 +254,7 @@ class AliMuwahedModuleLogic(ScriptedLoadableModuleLogic):
             triangleFilter.SetInputConnection(tubeFilter.GetOutputPort())
             triangleFilter.Update()
             self.needleModels[i].SetAndObservePolyData(triangleFilter.GetOutput())
+            
             direction = [pt2[j] - pt1[j] for j in range(3)]
             length = sum([d**2 for d in direction]) ** 0.5
             if length == 0:
@@ -362,7 +276,6 @@ class AliMuwahedModuleLogic(ScriptedLoadableModuleLogic):
         self.updateAllNeedlesFromFiducials(caller, event)
         self.computeNeedleVesselDistances(widget)
 
-    # --- Tumor/Needle logic ---
     def autoPlaceNeedleTip(self, widget):
         # Q2: Automatic needle placement
         try:
@@ -397,12 +310,9 @@ class AliMuwahedModuleLogic(ScriptedLoadableModuleLogic):
         except slicer.util.MRMLNodeNotFoundException:
             print("Please create a fiducial first")
 
-    # --- Risk/Distance logic ---
+    # --- Risk/Distance logic (Q3, Q5) ---
     def computeNeedleVesselDistances(self, widget):
-        # Q3/Q5: Computation of distances and automatic coloring according to risk
-        vessel_names = [
-            'portalvein', 'venoussystem', 'artery'
-        ]
+        vessel_names = ['portalvein', 'venoussystem', 'artery']
         results = []
         minRisk = float('inf')
         minRiskNeedleIdx = None
@@ -459,10 +369,7 @@ class AliMuwahedModuleLogic(ScriptedLoadableModuleLogic):
                 widget.distanceLabels.append(distLabel)
 
     def computeSingleNeedleVesselDistances(self, widget, needleIdx):
-        # Q3/Q4: Single needle risk display
-        vessel_names = [
-            'portalvein', 'venoussystem', 'artery'
-        ]
+        vessel_names = ['portalvein', 'venoussystem', 'artery']
         if needleIdx >= len(self.needleModels):
             return
         modelNode = self.needleModels[needleIdx]
@@ -501,86 +408,192 @@ class AliMuwahedModuleLogic(ScriptedLoadableModuleLogic):
             widget.distanceGrid.addWidget(distLabel, 1, v+1)
             widget.distanceLabels.append(distLabel)
 
-    # --- Q7: Ablation metrics ---
+    # --- Q7: Ablation metrics (Iterative Painting Fix) ---
+
+    def modelNodeToLabelmap(self, inputObject, name, referenceVolumeNode=None, spacing=1.0, labelValue=1):
+        """
+        Robust conversion to labelmap. Handles both ModelNodes and raw PolyData.
+        Ensures PADDING is added so meshes aren't clipped (fixing the 0 volume bug).
+        """
+        if hasattr(inputObject, "GetPolyData"):
+            polyData = inputObject.GetPolyData()
+        else:
+            polyData = inputObject
+
+        if polyData is None or polyData.GetNumberOfPoints() < 1:
+            print(f"Error: {name} has no polyData")
+            return None
+            
+        labelmapNode = slicer.mrmlScene.AddNewNodeByClass('vtkMRMLLabelMapVolumeNode', name)
+        image = vtk.vtkImageData()
+
+        if referenceVolumeNode:
+            # Case A: Align with Reference (Painting Sphere into Tumor Grid)
+            refImage = referenceVolumeNode.GetImageData()
+            image.DeepCopy(refImage)
+            # Copy Orientation
+            mat = vtk.vtkMatrix4x4()
+            referenceVolumeNode.GetIJKToRASDirectionMatrix(mat)
+            labelmapNode.SetIJKToRASDirectionMatrix(mat)
+            labelmapNode.SetOrigin(referenceVolumeNode.GetOrigin())
+            labelmapNode.SetSpacing(referenceVolumeNode.GetSpacing())
+            # Initialize with 0 (Empty Canvas) to paint on
+            image.GetPointData().GetScalars().Fill(0) 
+        else:
+            # Case B: Create New Grid (The Master Tumor Map)
+            bounds = polyData.GetBounds()
+            # CRITICAL FIX: 5mm Padding
+            padding = 5.0 
+            origin = [bounds[0] - padding, bounds[2] - padding, bounds[4] - padding]
+            
+            dimX = int((bounds[1] - bounds[0] + (2 * padding)) / spacing) + 1
+            dimY = int((bounds[3] - bounds[2] + (2 * padding)) / spacing) + 1
+            dimZ = int((bounds[5] - bounds[4] + (2 * padding)) / spacing) + 1
+            
+            image.SetDimensions(dimX, dimY, dimZ)
+            image.AllocateScalars(vtk.VTK_UNSIGNED_CHAR, 1)
+            image.SetSpacing(spacing, spacing, spacing)
+            image.SetOrigin(origin)
+            # Initialize with 0
+            image.GetPointData().GetScalars().Fill(0)
+
+        # Create Stencil
+        pol2stenc = vtk.vtkPolyDataToImageStencil()
+        pol2stenc.SetInputData(polyData)
+        pol2stenc.SetOutputOrigin(image.GetOrigin())
+        pol2stenc.SetOutputSpacing(image.GetSpacing())
+        pol2stenc.SetOutputWholeExtent(image.GetExtent())
+        pol2stenc.Update()
+
+        # Paint 1s into the image where the stencil is
+        # We fill a temp image with 1s, then cut the outside to 0
+        finalImage = vtk.vtkImageData()
+        finalImage.DeepCopy(image)
+        finalImage.GetPointData().GetScalars().Fill(labelValue) # Fill all 1
+        
+        imgStencil = vtk.vtkImageStencil()
+        imgStencil.SetInputData(finalImage) # All 1s
+        imgStencil.SetStencilData(pol2stenc.GetOutput())
+        imgStencil.ReverseStencilOff()
+        imgStencil.SetBackgroundValue(0) # Cut everything outside to 0
+        imgStencil.Update()
+
+        labelmapNode.SetAndObserveImageData(imgStencil.GetOutput())
+        return labelmapNode
+
     def computeAblationTumorOverlap(self, tumorNode, ablationSphereNodes, spacing=1.0):
-        """
-        Computes overlap between tumor and ablation spheres.
-        Returns: ablated tumor voxel count, ablated tumor volume, total tumor voxel count, total tumor volume, efficiency (fraction).
-        Steps:
-        1. Convert tumor mesh to binary labelmap (voxels inside tumor = 1).
-        2. Convert each ablation sphere mesh to binary labelmap using tumor labelmap geometry as reference.
-        3. Union all ablation sphere labelmaps (any voxel covered by any sphere = 1).
-        4. For each voxel, if inside both tumor and ablation, count as ablated.
-        5. Count all tumor voxels (labelmap = 1).
-        6. Compute volumes by multiplying voxel count by voxel volume (spacing³).
-        7. Efficiency = ablated tumor volume / total tumor volume.
-        """
-        # Always use mesh bounds for tumor labelmap if no reference is available
-        tumorLabelmap = self.modelNodeToLabelmap(tumorNode, referenceVolumeNode=None, spacing=spacing)
-        if tumorLabelmap is None:
-            print("Tumor labelmap conversion failed")
+        # Q7: Compute volumes using Iterative Union (Robust method)
+        if not tumorNode or not ablationSphereNodes:
             return 0, 0, 0, 0, 0
-        ablationLabelmap = None
-        for ablationNode in ablationSphereNodes:
-            ablationLabelmap = self.modelNodeToLabelmap(ablationNode, referenceVolumeNode=tumorLabelmap, spacing=spacing)
-            if ablationLabelmap is None:
-                print(f"Ablation labelmap conversion failed for {ablationNode.GetName()}")
-                continue
-        if ablationLabelmap is None:
-            print("No ablation labelmap created")
+
+        # 1. Convert Tumor to Labelmap (Master Reference)
+        tumorLabelmapNode = self.modelNodeToLabelmap(tumorNode, "TempTumorMap", referenceVolumeNode=None, spacing=spacing)
+        if not tumorLabelmapNode:
             return 0, 0, 0, 0, 0
-        # Step 4: Intersection - tumor voxels inside ablation
-        arrTumor = tumorLabelmap.GetImageData().GetPointData().GetScalars()
-        arrAblation = ablationLabelmap.GetImageData().GetPointData().GetScalars()
-        ablatedCount = 0
-        for i in range(arrTumor.GetNumberOfTuples()):
-            if arrTumor.GetValue(i) == 1 and arrAblation.GetValue(i) == 1:
-                ablatedCount += 1
-        # Step 5: Count all tumor voxels
-        totalCount, totalVolume = self.countVoxelsInLabelmap(tumorLabelmap, labelValue=1)
-        # Step 6: Compute ablated tumor volume
-        spacing = tumorLabelmap.GetSpacing()
-        voxelVolume = spacing[0] * spacing[1] * spacing[2]
-        ablatedVolume = ablatedCount * voxelVolume
-        # Step 7: Compute efficiency
-        efficiency = ablatedVolume / totalVolume if totalVolume > 0 else 0
-        print(f"Tumor voxels: {totalCount}, Ablated voxels: {ablatedCount}")
-        return ablatedCount, ablatedVolume, totalCount, totalVolume, efficiency
+            
+        tumorImageData = tumorLabelmapNode.GetImageData()
+        
+        # 2. Create "Master Ablation Image" (Accumulator)
+        masterAblationImage = vtk.vtkImageData()
+        masterAblationImage.DeepCopy(tumorImageData)
+        masterAblationImage.GetPointData().GetScalars().Fill(0) # Start Empty
+        
+        # 3. Iteratively Union each sphere
+        # This handles the "Union" requirement robustly
+        mathFilter = vtk.vtkImageMathematics()
+        mathFilter.SetOperationToMax() # 0 vs 1 -> 1
+
+        spheresProcessed = 0
+        for i, sphereNode in enumerate(ablationSphereNodes):
+            # Create a labelmap for THIS sphere, using Tumor Grid as reference
+            # This ensures they are in the exact same voxel grid
+            singleSphereLabelmap = self.modelNodeToLabelmap(
+                sphereNode, 
+                f"TempSphereMap_{i}", 
+                referenceVolumeNode=tumorLabelmapNode, 
+                labelValue=1
+            )
+            
+            if singleSphereLabelmap:
+                spheresProcessed += 1
+                # Union: Master = Max(Master, Sphere)
+                mathFilter.SetInput1Data(masterAblationImage)
+                mathFilter.SetInput2Data(singleSphereLabelmap.GetImageData())
+                mathFilter.Update()
+                
+                masterAblationImage.DeepCopy(mathFilter.GetOutput())
+                slicer.mrmlScene.RemoveNode(singleSphereLabelmap)
+        
+        if spheresProcessed == 0:
+            slicer.mrmlScene.RemoveNode(tumorLabelmapNode)
+            return 0, 0, 0, 0, 0
+
+        # 4. Count Voxels
+        tumorScalars = tumorImageData.GetPointData().GetScalars()
+        ablationScalars = masterAblationImage.GetPointData().GetScalars()
+        numTuples = tumorScalars.GetNumberOfTuples()
+
+        tumorVoxelCount = 0
+        ablationVoxelCount = 0
+        intersectionVoxelCount = 0
+
+        for i in range(numTuples):
+            tVal = tumorScalars.GetValue(i)
+            aVal = ablationScalars.GetValue(i)
+
+            if tVal > 0:
+                tumorVoxelCount += 1
+            if aVal > 0:
+                ablationVoxelCount += 1
+            if tVal > 0 and aVal > 0:
+                intersectionVoxelCount += 1
+
+        # 5. Calculate Volumes
+        sp = tumorLabelmapNode.GetSpacing()
+        oneVoxelVol = sp[0] * sp[1] * sp[2]
+
+        totalTumorVol = tumorVoxelCount * oneVoxelVol
+        totalAblationVol = ablationVoxelCount * oneVoxelVol
+        ablatedTumorVol = intersectionVoxelCount * oneVoxelVol
+
+        # 6. Efficiencies
+        coverage = (ablatedTumorVol / totalTumorVol) if totalTumorVol > 0 else 0
+        precision = (ablatedTumorVol / totalAblationVol) if totalAblationVol > 0 else 0
+
+        # Cleanup
+        slicer.mrmlScene.RemoveNode(tumorLabelmapNode)
+
+        return ablatedTumorVol, totalTumorVol, totalAblationVol, coverage, precision
 
     def updateAblationMetrics(self, widget):
-        """
-        Updates the ablation metrics UI section with current ablation/tumor overlap and efficiency.
-        Steps:
-        1. Get tumor and ablation sphere nodes.
-        2. Compute overlap and metrics using computeAblationTumorOverlap.
-        3. Clear previous UI labels.
-        4. Display metrics: ablated voxels, ablated volume, total tumor voxels, total tumor volume, efficiency.
-        """
         try:
             tumorNode = getNode('livertumor04')
         except slicer.util.MRMLNodeNotFoundException:
             return
+            
         ablationSphereNodes = self.ablationSpheres
         if not ablationSphereNodes:
             return
-        # Step 2: Compute metrics
-        ablatedCount, ablatedVolume, totalCount, totalVolume, efficiency = self.computeAblationTumorOverlap(tumorNode, ablationSphereNodes, spacing=1.0)
-        # Step 3: Clear previous labels
+
+        # Compute metrics
+        ablatedTumorVol, totalTumorVol, totalAblationVol, coverage, precision = \
+            self.computeAblationTumorOverlap(tumorNode, ablationSphereNodes, spacing=1.0)
+
+        # Update UI
         for label in getattr(widget, 'ablationLabels', []):
             widget.ablationGrid.removeWidget(label)
             label.deleteLater()
         widget.ablationLabels = []
-        # Step 4: Add metrics to UI
+
         metrics = [
-            ("Ablated Tumor Voxels", ablatedCount),
-            ("Ablated Tumor Volume (mm³)", f"{ablatedVolume:.2f}"),
-            ("Total Tumor Voxels", totalCount),
-            ("Total Tumor Volume (mm³)", f"{totalVolume:.2f}"),
-            ("Ablation Efficiency (%)", f"{efficiency*100:.2f}")
+            ("Total Tumor Volume", f"{totalTumorVol:.1f} mm3"),
+            ("Total Ablation Volume", f"{totalAblationVol:.1f} mm3"),
+            ("Tumor Volume Destroyed", f"{ablatedTumorVol:.1f} mm3"),
+            ("Tumor Covered (Sensitivity)", f"{coverage*100:.1f} %"),
+            ("Useful Ablation (Precision)", f"{precision*100:.1f} %")
         ]
-        for i, (labelText, value) in enumerate(metrics):
-            label = qt.QLabel(f"{labelText}: {value}")
-            widget.ablationGrid.addWidget(label, i, 0)
-            widget.ablationLabels.append(label)
-        # Optionally, print to console for debug
-        print(f"Ablation metrics: Ablated {ablatedCount} voxels, {ablatedVolume:.2f} mm³; Total {totalCount} voxels, {totalVolume:.2f} mm³; Efficiency {efficiency*100:.2f}%")
+
+        for i, (text, value) in enumerate(metrics):
+            lbl = qt.QLabel(f"<b>{text}:</b> {value}")
+            widget.ablationGrid.addWidget(lbl, i, 0)
+            widget.ablationLabels.append(lbl)
