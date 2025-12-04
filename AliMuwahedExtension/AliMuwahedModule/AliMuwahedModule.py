@@ -26,7 +26,7 @@ class AliMuwahedModule(ScriptedLoadableModule):
         self.parent.title = "AliMuwahedModule"  # TODO: make this more human readable by adding spaces
         self.parent.categories = ["Examples"]  # TODO: set categories (folders where the module shows up in the module selector)
         self.parent.dependencies = []  # TODO: add here list of module names that this module requires
-        self.parent.contributors = ["Caroline Essert (University of Strasbourg)"]  # TODO: replace with "Firstname Lastname (Organization)"
+        self.parent.contributors = ["Ali Kinan (University of Strasbourg), Sadel Muwahed (University of Strasbourg)"]  # TODO: replace with "Firstname Lastname (Organization)"
         # TODO: update with short description of the module and a link to online module documentation
         self.parent.helpText = """
             This is an example of scripted loadable module bundled in an extension.
@@ -60,7 +60,7 @@ class AliMuwahedModuleWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         self.logic = AliMuwahedModuleLogic()
 
     def setup(self):
-        # Q0: UI setup
+        # UI setup
         # Adds buttons for each project task and sets up the collapsible distance display grid.
         """
         Called when the user opens the module the first time and the widget is initialized.
@@ -98,6 +98,7 @@ class AliMuwahedModuleWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         self.distanceGrid = qt.QGridLayout()
         self.distanceCollapsible.setLayout(self.distanceGrid)
         self.distanceLabels = []  # Store references to labels for updating
+
         # Q7: Ablation metrics display section (collapsible)
         self.ablationCollapsible = slicer.qMRMLCollapsibleButton()
         self.ablationCollapsible.text = "Ablation Metrics"
@@ -105,6 +106,7 @@ class AliMuwahedModuleWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         self.ablationGrid = qt.QGridLayout()
         self.ablationCollapsible.setLayout(self.ablationGrid)
         self.ablationLabels = []  # Store references to ablation metric labels
+
         # Add Compute Ablation Metrics button
         computeAblationButton = qt.QPushButton("Compute Ablation Metrics")
         computeAblationButton.toolTip = "Compute ablated volume and efficiency."
@@ -413,7 +415,7 @@ class AliMuwahedModuleLogic(ScriptedLoadableModuleLogic):
     def modelNodeToLabelmap(self, inputObject, name, referenceVolumeNode=None, spacing=1.0, labelValue=1):
         """
         Robust conversion to labelmap. Handles both ModelNodes and raw PolyData.
-        Ensures PADDING is added so meshes aren't clipped (fixing the 0 volume bug).
+        Ensures PADDING is added so meshes aren't clipped.
         """
         if hasattr(inputObject, "GetPolyData"):
             polyData = inputObject.GetPolyData()
@@ -505,7 +507,7 @@ class AliMuwahedModuleLogic(ScriptedLoadableModuleLogic):
 
         spheresProcessed = 0
         for i, sphereNode in enumerate(ablationSphereNodes):
-            # Create a labelmap for THIS sphere, using Tumor Grid as reference
+            # Create a labelmap for this sphere, using Tumor Grid as reference
             # This ensures they are in the exact same voxel grid
             singleSphereLabelmap = self.modelNodeToLabelmap(
                 sphereNode, 
