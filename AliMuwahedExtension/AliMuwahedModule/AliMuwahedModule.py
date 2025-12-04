@@ -357,7 +357,7 @@ class AliMuwahedModuleLogic(ScriptedLoadableModuleLogic):
                     needle_results.append(f"{vessel_name}: error")
                     continue
                 minDist = min([distances.GetValue(i) for i in range(distances.GetNumberOfTuples())])
-                needle_results.append(f"{minDist/10:.2f} cm")
+                needle_results.append(f"{minDist:.2f} mm")
             results.append(needle_results)
         
         # Color the needle closest to tumor in red, others in yellow
@@ -409,7 +409,7 @@ class AliMuwahedModuleLogic(ScriptedLoadableModuleLogic):
                 needle_results.append(f"{vessel_name}: error")
                 continue
             minDist = min([distances.GetValue(i) for i in range(distances.GetNumberOfTuples())])
-            needle_results.append(f"{minDist/10:.2f} cm")
+            needle_results.append(f"{minDist:.2f} mm")
         for label in getattr(widget, 'distanceLabels', []):
             widget.distanceGrid.removeWidget(label)
             label.deleteLater()
