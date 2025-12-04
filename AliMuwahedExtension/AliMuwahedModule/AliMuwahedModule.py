@@ -316,12 +316,31 @@ class AliMuwahedModuleLogic(ScriptedLoadableModuleLogic):
     def computeNeedleVesselDistances(self, widget):
         vessel_names = ['portalvein', 'venoussystem', 'artery']
         results = []
-        minRisk = float('inf')
-        minRiskNeedleIdx = None
+        
+        # Compute distance to tumor for each needle to find the closest one
+        minDistToTumor = float('inf')
+        closestToTumorNeedleIdx = None
+        try:
+            tumorNode = getNode('livertumor04')
+            tumorPolyData = tumorNode.GetPolyData()
+            for needleIdx, modelNode in enumerate(self.needleModels):
+                needlePolyData = modelNode.GetPolyData()
+                distanceFilter = vtk.vtkDistancePolyDataFilter()
+                distanceFilter.SetInputData(0, needlePolyData)
+                distanceFilter.SetInputData(1, tumorPolyData)
+                distanceFilter.Update()
+                distances = distanceFilter.GetOutput().GetPointData().GetArray("Distance")
+                if distances:
+                    minDist = min([distances.GetValue(i) for i in range(distances.GetNumberOfTuples())])
+                    if minDist < minDistToTumor:
+                        minDistToTumor = minDist
+                        closestToTumorNeedleIdx = needleIdx
+        except slicer.util.MRMLNodeNotFoundException:
+            pass
+        
         for needleIdx, modelNode in enumerate(self.needleModels):
             needlePolyData = modelNode.GetPolyData()
             needle_results = []
-            minDistForNeedle = float('inf')
             for vessel_name in vessel_names:
                 try:
                     vesselNode = getNode(vessel_name)
@@ -339,14 +358,11 @@ class AliMuwahedModuleLogic(ScriptedLoadableModuleLogic):
                     continue
                 minDist = min([distances.GetValue(i) for i in range(distances.GetNumberOfTuples())])
                 needle_results.append(f"{minDist/10:.2f} cm")
-                if minDist < minDistForNeedle:
-                    minDistForNeedle = minDist
             results.append(needle_results)
-            if minDistForNeedle < minRisk:
-                minRisk = minDistForNeedle
-                minRiskNeedleIdx = needleIdx
+        
+        # Color the needle closest to tumor in red, others in yellow
         for i, modelNode in enumerate(self.needleModels):
-            if i == minRiskNeedleIdx:
+            if i == closestToTumorNeedleIdx:
                 modelNode.GetDisplayNode().SetColor(1,0,0)
             else:
                 modelNode.GetDisplayNode().SetColor(1,1,0)
