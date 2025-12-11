@@ -432,7 +432,7 @@ class AliMuwahedModuleLogic(ScriptedLoadableModuleLogic):
             widget.distanceGrid.addWidget(distLabel, 1, v+1)
             widget.distanceLabels.append(distLabel)
 
-    # --- Q7: Ablation metrics (Iterative Painting Fix) ---
+    # --- Q7: Ablation metrics (Iterative Painting) ---
 
     def modelNodeToLabelmap(self, inputObject, name, referenceVolumeNode=None, spacing=1.0, labelValue=1):
         """
@@ -466,7 +466,7 @@ class AliMuwahedModuleLogic(ScriptedLoadableModuleLogic):
         else:
             # Case B: Create New Grid (The Master Tumor Map)
             bounds = polyData.GetBounds()
-            # CRITICAL FIX: 5mm Padding
+            # 5mm Padding for bounding box
             padding = 5.0 
             origin = [bounds[0] - padding, bounds[2] - padding, bounds[4] - padding]
             
