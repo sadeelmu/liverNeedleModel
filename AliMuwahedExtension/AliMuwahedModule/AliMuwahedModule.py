@@ -153,7 +153,8 @@ class AliMuwahedModuleWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         self.logic.computeSingleNeedleVesselDistances(self, needleIdx)
 
     def onComputeAblationButtonClicked(self):
-        # Q7: Compute ablation metrics only when this button is pressed
+        # Q7: Enable live ablation metrics updates
+        self.logic.ablationMetricsEnabled = True
         self.logic.updateAblationMetrics(self)
 
 #%%
@@ -168,6 +169,7 @@ class AliMuwahedModuleLogic(ScriptedLoadableModuleLogic):
         self.needleModels = []       # Store model nodes for each needle
         self.ablationSpheres = []    # Store ablation sphere model nodes for each needle
         self.fiducialNode = None
+        self.ablationMetricsEnabled = False  # Track if ablation metrics should update live
 
     # --- Geometry/Update logic (Q1, Q2, Q4, Q6) ---
     def createNeedles(self, widget):
@@ -274,9 +276,11 @@ class AliMuwahedModuleLogic(ScriptedLoadableModuleLogic):
             self.ablationSpheres[i].SetAndObservePolyData(sphereSource.GetOutput())
 
     def onFiducialMoved(self, caller, event, widget):
-        # Q4: Automatic update of the distance
+        # Q4: Automatic update of the distance and ablation metrics
         self.updateAllNeedlesFromFiducials(caller, event)
         self.computeNeedleVesselDistances(widget)
+        if self.ablationMetricsEnabled:
+            self.updateAblationMetrics(widget)
 
     def autoPlaceNeedleTip(self, widget):
         # Q2: Automatic needle placement
@@ -302,6 +306,8 @@ class AliMuwahedModuleLogic(ScriptedLoadableModuleLogic):
                     self.fiducialNode.SetNthControlPointPosition(i+1, new_pt2)
         self.updateAllNeedlesFromFiducials(self.fiducialNode, None)
         self.computeNeedleVesselDistances(widget)
+        if self.ablationMetricsEnabled:
+            self.updateAblationMetrics(widget)
 
     def printPosF1(self, caller=None, event=None): 
         try:
