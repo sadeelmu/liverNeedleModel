@@ -171,6 +171,25 @@ class AliMuwahedModuleLogic(ScriptedLoadableModuleLogic):
         self.fiducialNode = None
         self.ablationMetricsEnabled = False  # Track if ablation metrics should update live
 
+    def _minAbsDistancePolyData(self, polyA, polyB):
+        """Return unsigned min distance (mm) between two polydata using vtkDistancePolyDataFilter.
+        Uses abs() to avoid signed-distance artifacts and swaps inputs if needed.
+        """
+        def run(A, B):
+            f = vtk.vtkDistancePolyDataFilter()
+            f.SetInputData(0, A)
+            f.SetInputData(1, B)
+            f.Update()
+            arr = f.GetOutput().GetPointData().GetArray("Distance")
+            if not arr:
+                return None
+            return min(abs(arr.GetValue(i)) for i in range(arr.GetNumberOfTuples()))
+
+        d = run(polyA, polyB)
+        if d is None:
+            d = run(polyB, polyA)  # swap inputs as fallback
+        return d
+
     # --- Geometry/Update logic (Q1, Q2, Q4, Q6) ---
     def createNeedles(self, widget):
         # Q1: Needle creation and interaction
@@ -321,57 +340,46 @@ class AliMuwahedModuleLogic(ScriptedLoadableModuleLogic):
     # --- Risk/Distance logic (Q3, Q5) ---
     def computeNeedleVesselDistances(self, widget):
         vessel_names = ['portalvein', 'venoussystem', 'artery']
-        results = []
-        
-        # Compute distance to tumor for each needle to find the closest one
-        minDistToTumor = float('inf')
-        closestToTumorNeedleIdx = None
-        try:
-            tumorNode = getNode('livertumor04')
-            tumorPolyData = tumorNode.GetPolyData()
-            for needleIdx, modelNode in enumerate(self.needleModels):
-                needlePolyData = modelNode.GetPolyData()
-                distanceFilter = vtk.vtkDistancePolyDataFilter()
-                distanceFilter.SetInputData(0, needlePolyData)
-                distanceFilter.SetInputData(1, tumorPolyData)
-                distanceFilter.Update()
-                distances = distanceFilter.GetOutput().GetPointData().GetArray("Distance")
-                if distances:
-                    minDist = min([distances.GetValue(i) for i in range(distances.GetNumberOfTuples())])
-                    if minDist < minDistToTumor:
-                        minDistToTumor = minDist
-                        closestToTumorNeedleIdx = needleIdx
-        except slicer.util.MRMLNodeNotFoundException:
-            pass
-        
+        results = []          # strings for UI
+        needleRisks = []      # numeric risk per needle (min over vessels), used for coloring
+
         for needleIdx, modelNode in enumerate(self.needleModels):
             needlePolyData = modelNode.GetPolyData()
-            needle_results = []
+
+            needle_result_strings = []
+            perNeedleDistances = []
+
             for vessel_name in vessel_names:
                 try:
                     vesselNode = getNode(vessel_name)
                 except slicer.util.MRMLNodeNotFoundException:
-                    needle_results.append(f"{vessel_name}: not found")
+                    needle_result_strings.append("not found")
                     continue
+
                 vesselPolyData = vesselNode.GetPolyData()
-                distanceFilter = vtk.vtkDistancePolyDataFilter()
-                distanceFilter.SetInputData(0, needlePolyData)
-                distanceFilter.SetInputData(1, vesselPolyData)
-                distanceFilter.Update()
-                distances = distanceFilter.GetOutput().GetPointData().GetArray("Distance")
-                if not distances:
-                    needle_results.append(f"{vessel_name}: error")
-                    continue
-                minDist = min([distances.GetValue(i) for i in range(distances.GetNumberOfTuples())])
-                needle_results.append(f"{minDist:.2f} mm")
-            results.append(needle_results)
-        
-        # Color the needle closest to tumor in red, others in yellow
+                d = self._minAbsDistancePolyData(needlePolyData, vesselPolyData)
+
+                if d is None:
+                    needle_result_strings.append("error")
+                else:
+                    perNeedleDistances.append(d)
+                    needle_result_strings.append(f"{d:.2f} mm")
+
+            results.append(needle_result_strings)
+
+            # risk = closest vessel distance
+            needleRisks.append(min(perNeedleDistances) if perNeedleDistances else float("inf"))
+
+        # Color: smallest risk (closest to vessels) in red, others yellow
+        closestToVesselsNeedleIdx = None
+        if needleRisks:
+            closestToVesselsNeedleIdx = min(range(len(needleRisks)), key=lambda i: needleRisks[i])
+
         for i, modelNode in enumerate(self.needleModels):
-            if i == closestToTumorNeedleIdx:
-                modelNode.GetDisplayNode().SetColor(1,0,0)
+            if i == closestToVesselsNeedleIdx:
+                modelNode.GetDisplayNode().SetColor(1, 0, 0)
             else:
-                modelNode.GetDisplayNode().SetColor(1,1,0)
+                modelNode.GetDisplayNode().SetColor(1, 1, 0)
         for label in getattr(widget, 'distanceLabels', []):
             widget.distanceGrid.removeWidget(label)
             label.deleteLater()
@@ -406,16 +414,11 @@ class AliMuwahedModuleLogic(ScriptedLoadableModuleLogic):
                 needle_results.append(f"{vessel_name}: not found")
                 continue
             vesselPolyData = vesselNode.GetPolyData()
-            distanceFilter = vtk.vtkDistancePolyDataFilter()
-            distanceFilter.SetInputData(0, needlePolyData)
-            distanceFilter.SetInputData(1, vesselPolyData)
-            distanceFilter.Update()
-            distances = distanceFilter.GetOutput().GetPointData().GetArray("Distance")
-            if not distances:
-                needle_results.append(f"{vessel_name}: error")
-                continue
-            minDist = min([distances.GetValue(i) for i in range(distances.GetNumberOfTuples())])
-            needle_results.append(f"{minDist:.2f} mm")
+            d = self._minAbsDistancePolyData(needlePolyData, vesselPolyData)
+            if d is None:
+                needle_results.append("error")
+            else:
+                needle_results.append(f"{d:.2f} mm")
         for label in getattr(widget, 'distanceLabels', []):
             widget.distanceGrid.removeWidget(label)
             label.deleteLater()
