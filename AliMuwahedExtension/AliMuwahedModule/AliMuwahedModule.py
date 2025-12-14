@@ -171,24 +171,50 @@ class AliMuwahedModuleLogic(ScriptedLoadableModuleLogic):
         self.fiducialNode = None
         self.ablationMetricsEnabled = False  # Track if ablation metrics should update live
 
-    def _minAbsDistancePolyData(self, polyA, polyB):
-        """Return unsigned min distance (mm) between two polydata using vtkDistancePolyDataFilter.
+    def _polyDataToWorld(self, modelNode):
+        """Return polydata transformed to world coordinates (RAS)."""
+        poly = modelNode.GetPolyData()
+        if poly is None:
+            return None
+
+        # Get node-to-world transform (includes parent transforms)
+        worldTransform = vtk.vtkGeneralTransform()
+        slicer.vtkMRMLTransformNode.GetTransformBetweenNodes(
+            modelNode.GetParentTransformNode(), None, worldTransform
+        )
+
+        tf = vtk.vtkTransformPolyDataFilter()
+        tf.SetTransform(worldTransform)
+        tf.SetInputData(poly)
+        tf.Update()
+        return tf.GetOutput()
+
+    def _minAbsDistanceBetweenModelNodes(self, nodeA, nodeB):
+        """Return unsigned min distance (mm) between two model nodes in world coordinates.
         Uses abs() to avoid signed-distance artifacts and swaps inputs if needed.
         """
-        def run(A, B):
-            f = vtk.vtkDistancePolyDataFilter()
-            f.SetInputData(0, A)
-            f.SetInputData(1, B)
-            f.Update()
-            arr = f.GetOutput().GetPointData().GetArray("Distance")
+        polyA = self._polyDataToWorld(nodeA)
+        polyB = self._polyDataToWorld(nodeB)
+        if not polyA or not polyB:
+            return None
+
+        f = vtk.vtkDistancePolyDataFilter()
+        f.SetInputData(0, polyA)
+        f.SetInputData(1, polyB)
+        f.Update()
+
+        arr = f.GetOutput().GetPointData().GetArray("Distance")
+        if not arr:
+            # fallback: swap (as assignment suggests)
+            f2 = vtk.vtkDistancePolyDataFilter()
+            f2.SetInputData(0, polyB)
+            f2.SetInputData(1, polyA)
+            f2.Update()
+            arr = f2.GetOutput().GetPointData().GetArray("Distance")
             if not arr:
                 return None
-            return min(abs(arr.GetValue(i)) for i in range(arr.GetNumberOfTuples()))
 
-        d = run(polyA, polyB)
-        if d is None:
-            d = run(polyB, polyA)  # swap inputs as fallback
-        return d
+        return min(abs(arr.GetValue(i)) for i in range(arr.GetNumberOfTuples()))
 
     # --- Geometry/Update logic (Q1, Q2, Q4, Q6) ---
     def createNeedles(self, widget):
@@ -344,8 +370,6 @@ class AliMuwahedModuleLogic(ScriptedLoadableModuleLogic):
         needleRisks = []      # numeric risk per needle (min over vessels), used for coloring
 
         for needleIdx, modelNode in enumerate(self.needleModels):
-            needlePolyData = modelNode.GetPolyData()
-
             needle_result_strings = []
             perNeedleDistances = []
 
@@ -356,8 +380,7 @@ class AliMuwahedModuleLogic(ScriptedLoadableModuleLogic):
                     needle_result_strings.append("not found")
                     continue
 
-                vesselPolyData = vesselNode.GetPolyData()
-                d = self._minAbsDistancePolyData(needlePolyData, vesselPolyData)
+                d = self._minAbsDistanceBetweenModelNodes(modelNode, vesselNode)
 
                 if d is None:
                     needle_result_strings.append("error")
@@ -405,7 +428,6 @@ class AliMuwahedModuleLogic(ScriptedLoadableModuleLogic):
         if needleIdx >= len(self.needleModels):
             return
         modelNode = self.needleModels[needleIdx]
-        needlePolyData = modelNode.GetPolyData()
         needle_results = []
         for vessel_name in vessel_names:
             try:
@@ -413,8 +435,7 @@ class AliMuwahedModuleLogic(ScriptedLoadableModuleLogic):
             except slicer.util.MRMLNodeNotFoundException:
                 needle_results.append(f"{vessel_name}: not found")
                 continue
-            vesselPolyData = vesselNode.GetPolyData()
-            d = self._minAbsDistancePolyData(needlePolyData, vesselPolyData)
+            d = self._minAbsDistanceBetweenModelNodes(modelNode, vesselNode)
             if d is None:
                 needle_results.append("error")
             else:
