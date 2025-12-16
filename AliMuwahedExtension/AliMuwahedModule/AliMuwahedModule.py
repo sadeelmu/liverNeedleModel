@@ -239,6 +239,10 @@ class AliMuwahedModuleLogic(ScriptedLoadableModuleLogic):
         lineSource = vtk.vtkLineSource()
         lineSource.SetPoint1(pt1)
         lineSource.SetPoint2(pt2)
+
+        #adding resolution (points to the cylinder)
+        lineSource.SetResolution(100)
+
         tubeFilter = vtk.vtkTubeFilter()
         tubeFilter.SetInputConnection(lineSource.GetOutputPort())
         tubeFilter.SetRadius(1.0)
