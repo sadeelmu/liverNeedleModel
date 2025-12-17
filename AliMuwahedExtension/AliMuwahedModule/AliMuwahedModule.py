@@ -172,12 +172,17 @@ class AliMuwahedModuleLogic(ScriptedLoadableModuleLogic):
         self.ablationMetricsEnabled = False  # Track if ablation metrics should update live
 
     def _polyDataToWorld(self, modelNode):
-        """Return polydata transformed to world coordinates (RAS)."""
+        """Return polydata transformed to world coordinates (RAS).
+        
+        Allows us to do accurate distance calculation: In Slicer, models may have parent transforms. 
+        GetPolyData() returns points in node-local coordinates, which can differ drastically from world coordinates, causing incorrect distance measurements.
+        This method applies all parent transforms to get world coords.
+        """
         poly = modelNode.GetPolyData()
         if poly is None:
             return None
 
-        # Get node-to-world transform (includes parent transforms)
+        # Get node-to-world transform (includes all parent transforms in hierarchy)
         worldTransform = vtk.vtkGeneralTransform()
         slicer.vtkMRMLTransformNode.GetTransformBetweenNodes(
             modelNode.GetParentTransformNode(), None, worldTransform
@@ -191,13 +196,22 @@ class AliMuwahedModuleLogic(ScriptedLoadableModuleLogic):
 
     def _minAbsDistanceBetweenModelNodes(self, nodeA, nodeB):
         """Return unsigned min distance (mm) between two model nodes in world coordinates.
-        Uses abs() to avoid signed-distance artifacts and swaps inputs if needed.
+        
+        Assignment requirement (Q3): Use vtkDistancePolyDataFilter to compute distance from each
+        point of first polydata to the other, then take the minimum of the generated array.
+        
+        What we do:
+        - Use world coordinates to handle parent transforms correctly
+        - use abs() to ensure non-negative distance 
+        - Swap inputs if needed
+        - Returns minimum Euclidean distance between two surfaces
         """
         polyA = self._polyDataToWorld(nodeA)
         polyB = self._polyDataToWorld(nodeB)
         if not polyA or not polyB:
             return None
 
+        # Compute distance from each point of A to surface B
         f = vtk.vtkDistancePolyDataFilter()
         f.SetInputData(0, polyA)
         f.SetInputData(1, polyB)
@@ -240,7 +254,8 @@ class AliMuwahedModuleLogic(ScriptedLoadableModuleLogic):
         lineSource.SetPoint1(pt1)
         lineSource.SetPoint2(pt2)
 
-        #adding resolution (points to the cylinder)
+        # Set resolution: number of points along the line (more points = smoother needle surface)
+        # Higher resolution improves distance calculation accuracy for curved or angled needles
         lineSource.SetResolution(100)
 
         tubeFilter = vtk.vtkTubeFilter()
@@ -259,13 +274,16 @@ class AliMuwahedModuleLogic(ScriptedLoadableModuleLogic):
         self.needleLineSources.append(lineSource)
         self.needleModels.append(modelNode)
         
-        # Q6: Create ablation sphere at 5mm from internal tip
+        # Q6: Create ablation sphere representing thermal ablation zone
+        # Sphere center: 5mm from needle tip (pt1) along needle axis toward pt2
+        # Radius: 5mm (diameter 10mm total ablation zone)
         ablationRadius = 10.0
         direction = [pt2[j] - pt1[j] for j in range(3)]
         length = sum([d**2 for d in direction]) ** 0.5
         if length == 0:
-            offset = [0,0,5]
+            offset = [0,0,5]  # Fallback if points are identical
         else:
+            # Normalize direction and scale by 5mm to position sphere center
             offset = [direction[j]/length*5.0 for j in range(3)]
         sphereCenter = [pt1[j] + offset[j] for j in range(3)]
         
@@ -394,14 +412,17 @@ class AliMuwahedModuleLogic(ScriptedLoadableModuleLogic):
 
             results.append(needle_result_strings)
 
-            # risk = closest vessel distance
+            # Q5: Risk assessment - needle's risk = minimum distance to any vessel
+            # Closer to vessels = higher risk of damage during ablation
             needleRisks.append(min(perNeedleDistances) if perNeedleDistances else float("inf"))
 
-        # Color: smallest risk (closest to vessels) in red, others yellow
+        # Q5: Visual risk indicator - color the highest risk needle (closest to vessels) red
+        # identify and highlight the needle with smallest vessel distance
         closestToVesselsNeedleIdx = None
         if needleRisks:
             closestToVesselsNeedleIdx = min(range(len(needleRisks)), key=lambda i: needleRisks[i])
 
+        # Apply color coding: red = highest risk (closest to vessels), yellow = others
         for i, modelNode in enumerate(self.needleModels):
             if i == closestToVesselsNeedleIdx:
                 modelNode.GetDisplayNode().SetColor(1, 0, 0)
