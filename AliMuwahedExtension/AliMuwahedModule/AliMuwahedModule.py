@@ -6,8 +6,8 @@ import vtk
 import slicer, vtk, qt, SampleData
 """
 AliMuwahedModule: Slicer module for interactive thermal ablation needle planning.
-Each major section is annotated with comments explaining which project question/task it implements.
 """
+
 from slicer.ScriptedLoadableModule import *
 from slicer.util import *
 
@@ -172,10 +172,10 @@ class AliMuwahedModuleLogic(ScriptedLoadableModuleLogic):
         self.ablationMetricsEnabled = False  # Track if ablation metrics should update live
 
     def _polyDataToWorld(self, modelNode):
-        """Return polydata transformed to world coordinates (RAS).
-        
-        Allows us to do accurate distance calculation: In Slicer, models may have parent transforms. 
-        GetPolyData() returns points in node-local coordinates, which can differ drastically from world coordinates, causing incorrect distance measurements.
+        """Return polydata transformed to world coordinates (RAS). Allows us to do accurate distance calculation.
+       
+        In Slicer, models may have parent transforms. GetPolyData() returns points in node-local coordinates, 
+        which can differ drastically from world coordinates, causing incorrect distance measurements.
         This method applies all parent transforms to get world coords.
         """
         poly = modelNode.GetPolyData()
@@ -197,7 +197,7 @@ class AliMuwahedModuleLogic(ScriptedLoadableModuleLogic):
     def _minAbsDistanceBetweenModelNodes(self, nodeA, nodeB):
         """Return unsigned min distance (mm) between two model nodes in world coordinates.
         
-        Assignment requirement (Q3): Use vtkDistancePolyDataFilter to compute distance from each
+        (Q3): Use vtkDistancePolyDataFilter to compute distance from each
         point of first polydata to the other, then take the minimum of the generated array.
         
         What we do:
@@ -385,7 +385,7 @@ class AliMuwahedModuleLogic(ScriptedLoadableModuleLogic):
         except slicer.util.MRMLNodeNotFoundException:
             print("Please create a fiducial first")
 
-    # --- Risk/Distance logic (Q3, Q5) ---
+    # Risk/Distance logic (Q3, Q5) 
     def computeNeedleVesselDistances(self, widget):
         vessel_names = ['portalvein', 'venoussystem', 'artery']
         results = []          # strings for UI
@@ -481,7 +481,7 @@ class AliMuwahedModuleLogic(ScriptedLoadableModuleLogic):
             widget.distanceGrid.addWidget(distLabel, 1, v+1)
             widget.distanceLabels.append(distLabel)
 
-    # --- Q7: Ablation metrics (Iterative Painting) ---
+    # Q7: Ablation metrics (Iterative Painting) 
 
     def modelNodeToLabelmap(self, inputObject, name, referenceVolumeNode=None, spacing=1.0, labelValue=1):
         """
